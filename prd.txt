@@ -1,0 +1,81 @@
+# Product Requirements Document (PRD)
+
+## Project Name
+Chunkwise - YouTube Video Learning Platform
+
+## Overview
+Chunkwise helps self-learners break long YouTube programming videos into digestible, actionable segments. It supports chunking, transcriptions, note-taking, and learning progress — all in a distraction-free cloud interface.
+
+## Goals
+* Break long tutorials into chunks to promote consistent learning
+* Provide note-taking and transcription features per chunk
+* Track progress over time
+* Scaffold for motivational features and gamified learning (future phase)
+
+## Target Users
+* Self-taught developers
+* Tech learners on YouTube
+* Bootcamp/curriculum followers
+
+## Tech Stack
+* Frontend: Next.js 15 + Tailwind + ShadCN
+* Auth: Clerk
+* Backend Jobs: Modal + ffmpeg + yt-dlp
+* Job Orchestration: Inngest
+* Transcription: Whisper (M-bain whisperX)
+* Database: Supabase
+* File Hosting: AWS S3
+* Monorepo: Turborepo
+
+## Core Features (MVP)
+
+### YouTube Video Import
+* Paste link → process in cloud → split into S3-hosted chunks
+
+### Chunking Engine
+* Chunk duration: global default or per-video override (5/10/15 mins)
+* Stored and streamed from S3
+
+### Transcription (via Whisper)
+* Chunk-level transcription stored and viewable
+
+### Chunk View (Playback UI)
+* HTML5 video player
+* Tabs: Notes (editable) and Transcript (read-only Whisper)
+
+### Progress Tracking
+* Mark chunk as completed
+* Resume from last watched
+
+### User Settings
+* Set default chunk duration
+* Change chunk duration per video
+
+## App Pages/Screens
+
+### Auth & Access
+* /login – Login/Register (Clerk)
+* /dashboard – Main video library
+* /settings – Global preferences
+
+### Core Learning
+* /video/[videoId] – Video details page with chunk list and progress bar
+* /video/[videoId]/chunk/[chunkId] – Chunk playback page with Notes and Transcript tabs
+
+### Submission & Queue
+* /upload – Paste YouTube URL + set chunk settings
+* /processing/[jobId] – Progress/status while video is processed
+
+## MVP Roadmap
+* Video ingestion, chunking, transcription
+* Video/chunk player with notes and transcript tabs
+* Settings (global/per-video)
+* Progress marking and chunk status
+* Basic dashboard
+
+## Future Features (Phase 2+)
+* Gamified stats and XP system
+* Achievement tracking
+* Daily/weekly streaks
+* Quizzes and comprehension checks
+* Push/email motivational nudges 

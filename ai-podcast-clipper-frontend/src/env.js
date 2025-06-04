@@ -21,12 +21,18 @@ export const env = createEnv({
     S3_BUCKET_NAME: z.string(),
     PROCESS_VIDEO_ENDPOINT: z.string(),
     PROCESS_VIDEO_ENDPOINT_AUTH: z.string(),
+    // Chunkwise-specific endpoints
+    CHUNKWISE_PROCESS_VIDEO_ENDPOINT: z.string().optional(),
+    CHUNKWISE_PROCESS_VIDEO_ENDPOINT_AUTH: z.string().optional(),
+    THUMBNAIL_GENERATION_ENDPOINT: z.string().optional(),
     STRIPE_SECRET_KEY: z.string(),
     STRIPE_SMALL_CREDIT_PACK: z.string(),
     STRIPE_MEDIUM_CREDIT_PACK: z.string(),
     STRIPE_LARGE_CREDIT_PACK: z.string(),
     BASE_URL: z.string(),
     STRIPE_WEBHOOK_SECRET: z.string(),
+    // Supabase server-side key
+    SUPABASE_SERVICE_ROLE_KEY: z.string().optional(),
   },
 
   /**
@@ -37,6 +43,11 @@ export const env = createEnv({
   client: {
     // NEXT_PUBLIC_CLIENTVAR: z.string(),
     NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY: z.string(),
+    // Backend API URL for YouTube metadata
+    NEXT_PUBLIC_BACKEND_URL: z.string().optional(),
+    // Supabase client variables
+    NEXT_PUBLIC_SUPABASE_URL: z.string().optional(),
+    NEXT_PUBLIC_SUPABASE_ANON_KEY: z.string().optional(),
   },
 
   /**
@@ -53,14 +64,25 @@ export const env = createEnv({
     S3_BUCKET_NAME: process.env.S3_BUCKET_NAME,
     PROCESS_VIDEO_ENDPOINT: process.env.PROCESS_VIDEO_ENDPOINT,
     PROCESS_VIDEO_ENDPOINT_AUTH: process.env.PROCESS_VIDEO_ENDPOINT_AUTH,
+    // Chunkwise endpoints
+    CHUNKWISE_PROCESS_VIDEO_ENDPOINT:
+      process.env.CHUNKWISE_PROCESS_VIDEO_ENDPOINT,
+    CHUNKWISE_PROCESS_VIDEO_ENDPOINT_AUTH:
+      process.env.CHUNKWISE_PROCESS_VIDEO_ENDPOINT_AUTH,
+    THUMBNAIL_GENERATION_ENDPOINT: process.env.THUMBNAIL_GENERATION_ENDPOINT,
     NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY:
       process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY,
+    NEXT_PUBLIC_BACKEND_URL: process.env.NEXT_PUBLIC_BACKEND_URL,
     STRIPE_SECRET_KEY: process.env.STRIPE_SECRET_KEY,
     STRIPE_SMALL_CREDIT_PACK: process.env.STRIPE_SMALL_CREDIT_PACK,
     STRIPE_MEDIUM_CREDIT_PACK: process.env.STRIPE_MEDIUM_CREDIT_PACK,
     STRIPE_LARGE_CREDIT_PACK: process.env.STRIPE_LARGE_CREDIT_PACK,
     BASE_URL: process.env.BASE_URL,
     STRIPE_WEBHOOK_SECRET: process.env.STRIPE_WEBHOOK_SECRET,
+    // Supabase
+    NEXT_PUBLIC_SUPABASE_URL: process.env.NEXT_PUBLIC_SUPABASE_URL,
+    NEXT_PUBLIC_SUPABASE_ANON_KEY: process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY,
+    SUPABASE_SERVICE_ROLE_KEY: process.env.SUPABASE_SERVICE_ROLE_KEY,
   },
   /**
    * Run `build` or `dev` with `SKIP_ENV_VALIDATION` to skip env validation. This is especially

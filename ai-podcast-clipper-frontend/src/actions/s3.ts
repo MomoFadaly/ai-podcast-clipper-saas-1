@@ -42,10 +42,12 @@ export async function generateUploadUrl(fileInfo: {
 
   const uploadedFileDbRecord = await db.uploadedFile.create({
     data: {
+      id: crypto.randomUUID(),
       userId: session.user.id,
       s3Key: key,
       displayName: fileInfo.filename,
       uploaded: false,
+      updatedAt: new Date(),
     },
     select: {
       id: true,

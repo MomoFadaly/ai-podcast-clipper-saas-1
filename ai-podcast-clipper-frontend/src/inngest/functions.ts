@@ -1,7 +1,6 @@
 import { env } from "~/env";
 import { inngest } from "./client";
 import { db } from "~/server/db";
-import { ListObjectsV2Command, S3Client } from "@aws-sdk/client-s3";
 
 export const processVideo = inngest.createFunction(
   {
@@ -14,9 +13,10 @@ export const processVideo = inngest.createFunction(
   },
   { event: "process-video-events" },
   async ({ event, step }) => {
-    const { uploadedFileId } = event.data as {
+    const { uploadedFileId, chunks } = event.data as {
       uploadedFileId: string;
       userId: string;
+      chunks: Array<{ start: number; end: number }>;
     };
 
     try {
@@ -28,7 +28,7 @@ export const processVideo = inngest.createFunction(
               id: uploadedFileId,
             },
             select: {
-              user: {
+              User: {
                 select: {
                   id: true,
                   credits: true,
@@ -39,14 +39,42 @@ export const processVideo = inngest.createFunction(
           });
 
           return {
-            userId: uploadedFile.user.id,
-            credits: uploadedFile.user.credits,
+            userId: uploadedFile.User.id,
+            credits: uploadedFile.User.credits,
             s3Key: uploadedFile.s3Key,
           };
         },
       );
+      console.log("[Inngest] DB lookup result:", { userId, credits, s3Key });
+
+      // Robust error handling and logging for pre-create Clip logic
+      try {
+        if (chunks && chunks.length > 0) {
+          const s3KeyDir = s3Key.substring(0, s3Key.lastIndexOf("/"));
+          const clipData = [];
+          for (let i = 0; i < chunks.length; i++) {
+            const clipS3Key = `${s3KeyDir}/clip_${i}.mp4`;
+            clipData.push({
+              id: crypto.randomUUID(),
+              s3Key: clipS3Key,
+              uploadedFileId,
+              userId,
+              updatedAt: new Date(),
+            });
+          }
+          // await db.clip.createMany({ data: clipData }); // TEMPORARILY DISABLED
+          console.log(
+            `(TEMP DISABLED) Would pre-create ${chunks.length} Clip records in database`,
+            clipData,
+          );
+        }
+      } catch (err) {
+        console.error("[Inngest] Error in pre-create Clip logic:", err);
+        throw err;
+      }
 
       if (credits > 0) {
+        console.log("[Inngest] User has credits, proceeding to Modal call");
         await step.run("set-status-processing", async () => {
           await db.uploadedFile.update({
             where: {
@@ -58,38 +86,87 @@ export const processVideo = inngest.createFunction(
           });
         });
 
-        await step.fetch(env.PROCESS_VIDEO_ENDPOINT, {
-          method: "POST",
-          body: JSON.stringify({ s3_key: s3Key }),
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${env.PROCESS_VIDEO_ENDPOINT_AUTH}`,
-          },
+        const modalResult = await step.run("process-with-modal", async () => {
+          const payload = {
+            s3_key: s3Key,
+            chunks,
+          };
+          console.log(
+            "[Inngest] Calling Modal endpoint:",
+            env.PROCESS_VIDEO_ENDPOINT,
+          );
+          console.log(
+            "[Inngest] Auth token present:",
+            Boolean(env.PROCESS_VIDEO_ENDPOINT_AUTH),
+          );
+          console.log("[Inngest] Payload:", JSON.stringify(payload));
+          try {
+            const response = await fetch(env.PROCESS_VIDEO_ENDPOINT, {
+              method: "POST",
+              body: JSON.stringify(payload),
+              headers: {
+                "Content-Type": "application/json",
+                Authorization: `Bearer ${env.PROCESS_VIDEO_ENDPOINT_AUTH}`,
+              },
+            });
+            console.log("[Inngest] Modal response status:", response.status);
+            let responseBody;
+            try {
+              responseBody = await response.text();
+              console.log("[Inngest] Modal response body:", responseBody);
+            } catch (e) {
+              console.log("[Inngest] Could not read Modal response body:", e);
+            }
+            if (!response.ok) {
+              throw new Error(
+                `Modal API failed with status: ${response.status} - ${responseBody}`,
+              );
+            }
+            return responseBody ? JSON.parse(responseBody) : {};
+          } catch (err) {
+            console.error("[Inngest] Error calling Modal:", err);
+            throw err;
+          }
         });
+
+        console.log("[Inngest] Modal processing result:", modalResult);
 
         const { clipsFound } = await step.run(
           "create-clips-in-db",
           async () => {
-            const folderPrefix = s3Key.split("/")[0]!;
+            const clipsProcessed = modalResult.clips_processed ?? 0;
+            const transcription = modalResult.transcription;
 
-            const allKeys = await listS3ObjectsByPrefix(folderPrefix);
+            if (clipsProcessed > 0) {
+              console.log(
+                `Creating ${clipsProcessed} clip records in database`,
+              );
 
-            const clipKeys = allKeys.filter(
-              (key): key is string =>
-                key !== undefined && !key.endsWith("original.mp4"),
-            );
+              const s3KeyDir = s3Key.substring(0, s3Key.lastIndexOf("/"));
+              const clipData = [];
 
-            if (clipKeys.length > 0) {
-              await db.clip.createMany({
-                data: clipKeys.map((clipKey) => ({
-                  s3Key: clipKey,
+              for (let i = 0; i < clipsProcessed; i++) {
+                const clipS3Key = `${s3KeyDir}/clip_${i}.mp4`;
+                clipData.push({
+                  id: crypto.randomUUID(),
+                  s3Key: clipS3Key,
                   uploadedFileId,
                   userId,
-                })),
+                  transcription: transcription,
+                  updatedAt: new Date(),
+                });
+              }
+
+              await db.clip.createMany({
+                data: clipData,
               });
+
+              console.log(
+                "✅ Clip records created successfully with transcription data",
+              );
             }
 
-            return { clipsFound: clipKeys.length };
+            return { clipsFound: clipsProcessed };
           },
         );
 
@@ -117,6 +194,7 @@ export const processVideo = inngest.createFunction(
           });
         });
       } else {
+        console.log("[Inngest] User has no credits, skipping Modal call");
         await step.run("set-status-no-credits", async () => {
           await db.uploadedFile.update({
             where: {
@@ -129,6 +207,11 @@ export const processVideo = inngest.createFunction(
         });
       }
     } catch (error: unknown) {
+      console.error(
+        "[Inngest] Processing error:",
+        error,
+        error instanceof Error ? error.stack : "",
+      );
       await db.uploadedFile.update({
         where: {
           id: uploadedFileId,
@@ -137,24 +220,7 @@ export const processVideo = inngest.createFunction(
           status: "failed",
         },
       });
+      throw error;
     }
   },
 );
-
-async function listS3ObjectsByPrefix(prefix: string) {
-  const s3Client = new S3Client({
-    region: env.AWS_REGION,
-    credentials: {
-      accessKeyId: env.AWS_ACCESS_KEY_ID,
-      secretAccessKey: env.AWS_SECRET_ACCESS_KEY,
-    },
-  });
-
-  const listCommand = new ListObjectsV2Command({
-    Bucket: env.S3_BUCKET_NAME,
-    Prefix: prefix,
-  });
-
-  const response = await s3Client.send(listCommand);
-  return response.Contents?.map((item) => item.Key).filter(Boolean) ?? [];
-}

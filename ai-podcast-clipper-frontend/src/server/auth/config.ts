@@ -62,21 +62,42 @@ export const authConfig = {
       },
     }),
   ],
-  session: { strategy: "jwt" },
+  session: {
+    strategy: "jwt",
+    maxAge: 30 * 24 * 60 * 60, // 30 days
+  },
   adapter: PrismaAdapter(db),
+  pages: {
+    signIn: "/login",
+  },
   callbacks: {
-    session: ({ session, token }) => ({
-      ...session,
-      user: {
-        ...session.user,
-        id: token.sub,
-      },
-    }),
+    session: async ({ session, token }) => {
+      // Fetch user credits from DB
+      let credits = 0;
+      if (token.sub) {
+        const user = await db.user.findUnique({ where: { id: token.sub } });
+        credits = user?.credits ?? 0;
+      }
+      return {
+        ...session,
+        user: {
+          ...session.user,
+          id: token.sub,
+          credits,
+        },
+      };
+    },
     jwt: ({ token, user }) => {
       if (user) {
         token.id = user.id;
       }
       return token;
     },
+    // Add authorized callback for middleware
+    authorized: ({ auth }) => {
+      return !!auth;
+    },
   },
+  // Add trustHost for production
+  trustHost: true,
 } satisfies NextAuthConfig;

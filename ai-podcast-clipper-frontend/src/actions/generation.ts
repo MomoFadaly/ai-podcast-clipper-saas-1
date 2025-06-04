@@ -8,7 +8,10 @@ import { inngest } from "~/inngest/client";
 import { auth } from "~/server/auth";
 import { db } from "~/server/db";
 
-export async function processVideo(uploadedFileId: string) {
+export async function processVideo(
+  uploadedFileId: string,
+  chunks: Array<{ start: number; end: number }>,
+) {
   const uploadedVideo = await db.uploadedFile.findUniqueOrThrow({
     where: {
       id: uploadedFileId,
@@ -24,7 +27,11 @@ export async function processVideo(uploadedFileId: string) {
 
   await inngest.send({
     name: "process-video-events",
-    data: { uploadedFileId: uploadedVideo.id, userId: uploadedVideo.userId },
+    data: {
+      uploadedFileId: uploadedVideo.id,
+      userId: uploadedVideo.userId,
+      chunks,
+    },
   });
 
   await db.uploadedFile.update({
@@ -41,10 +48,10 @@ export async function processVideo(uploadedFileId: string) {
 
 export async function getClipPlayUrl(
   clipId: string,
-): Promise<{ succes: boolean; url?: string; error?: string }> {
+): Promise<{ success: boolean; url?: string; error?: string }> {
   const session = await auth();
   if (!session?.user?.id) {
-    return { succes: false, error: "Unauthorized" };
+    return { success: false, error: "Unauthorized" };
   }
 
   try {
@@ -72,8 +79,9 @@ export async function getClipPlayUrl(
       expiresIn: 3600,
     });
 
-    return { succes: true, url: signedUrl };
+    return { success: true, url: signedUrl };
   } catch (error) {
-    return { succes: false, error: "Failed to generate play URL." };
+    console.error("Error generating clip play URL:", error);
+    return { success: false, error: "Failed to generate play URL." };
   }
 }

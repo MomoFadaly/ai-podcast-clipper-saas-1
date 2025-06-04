@@ -1,7 +1,8 @@
-import "~/styles/globals.css";
-
 import { type Metadata } from "next";
 import { Geist } from "next/font/google";
+import ClientProviders from "~/components/client-providers";
+
+import "~/styles/globals.css";
 
 export const metadata: Metadata = {
   title: "Podcast Clipper",
@@ -19,7 +20,9 @@ export default function RootLayout({
 }: Readonly<{ children: React.ReactNode }>) {
   return (
     <html lang="en" className={`${geist.variable}`}>
-      <body>{children}</body>
+      <body>
+        <ClientProviders>{children}</ClientProviders>
+      </body>
     </html>
   );
 }
