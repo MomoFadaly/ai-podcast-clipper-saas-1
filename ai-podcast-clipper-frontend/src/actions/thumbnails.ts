@@ -13,338 +13,444 @@ export interface ThumbnailGenerationOptions {
   timeOffset?: number; // Time in seconds for frame extraction
 }
 
-export async function generateThumbnail(options: ThumbnailGenerationOptions) {
-  console.log("=== THUMBNAIL GENERATION START ===");
-  console.log("Options received:", options);
-
-  const session = await auth();
-  if (!session?.user?.id) {
-    console.log("❌ AUTH FAILED: No session or user ID");
-    throw new Error("Unauthorized");
+// Helper to construct the thumbnail backend URL from the main processing endpoint
+function getThumbnailBackendUrl(): string {
+  if (!env.PROCESS_VIDEO_ENDPOINT) {
+    console.error("❌ MISSING: PROCESS_VIDEO_ENDPOINT is not configured.");
+    throw new Error("Main video processing endpoint not configured");
   }
-  console.log("✅ AUTH SUCCESS: User ID:", session.user.id);
-
-  const { projectId, clipId, timeOffset = 5 } = options;
-
-  try {
-    console.log("🔍 STEP 1: Checking environment configuration...");
-    if (!env.THUMBNAIL_GENERATION_ENDPOINT) {
-      console.log("❌ MISSING: THUMBNAIL_GENERATION_ENDPOINT");
-      throw new Error("Thumbnail generation endpoint not configured");
-    }
-    console.log("✅ ENDPOINT:", env.THUMBNAIL_GENERATION_ENDPOINT);
-
-    if (!env.PROCESS_VIDEO_ENDPOINT_AUTH) {
-      console.log("❌ MISSING: PROCESS_VIDEO_ENDPOINT_AUTH");
-      throw new Error("Thumbnail generation auth not configured");
-    }
-    console.log("✅ AUTH TOKEN: Configured");
-
-    // Generate thumbnails for both project and clips
-    const thumbnails: { projectThumbnail?: string; clipThumbnail?: string } =
-      {};
-
-    console.log("🔍 STEP 2: Determining what to generate...");
-    if (projectId) {
-      console.log("📁 PROJECT THUMBNAIL: Will generate for project", projectId);
-    }
-    if (clipId) {
-      console.log("🎬 CLIP THUMBNAIL: Will generate for clip", clipId);
-    }
-
-    console.log("🔍 STEP 3: Starting thumbnail generation...");
-
-    // Step 3a: Generate project thumbnail if requested
-    if (projectId) {
-      console.log("📁 Generating PROJECT thumbnail...");
-      console.log("Looking up project:", projectId);
-
-      const project = await db.uploadedFile.findFirst({
-        where: {
-          id: projectId,
-          userId: session.user.id,
-        },
-      });
-
-      if (!project) {
-        console.log("❌ PROJECT NOT FOUND:", projectId);
-        throw new Error("Project not found");
-      }
-      console.log(
-        "✅ PROJECT FOUND:",
-        project.displayName,
-        "S3 Key:",
-        project.s3Key,
-      );
-
-      console.log(
-        "📁 Generating signed URL for project using existing utility...",
-      );
-      // Use the existing working utility to get signed URL
-      const projectUrlResult = await getVideoDownloadUrl(project.s3Key);
-      if (!projectUrlResult.success || !projectUrlResult.url) {
-        throw new Error(
-          `Failed to generate signed URL: ${projectUrlResult.error}`,
-        );
-      }
-      console.log("✅ PROJECT SIGNED URL: Generated using existing utility");
-
-      console.log("📁 Calling Modal for project thumbnail...");
-      // Call Modal endpoint for project thumbnail
-      const modalResponse = await fetch(env.THUMBNAIL_GENERATION_ENDPOINT, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${env.PROCESS_VIDEO_ENDPOINT_AUTH}`,
-        },
-        body: JSON.stringify({
-          video_url: projectUrlResult.url,
-          time_offset: timeOffset,
-        }),
-      });
-
-      console.log("📁 Modal response status:", modalResponse.status);
-
-      if (!modalResponse.ok) {
-        const errorText = await modalResponse.text();
-        console.log("❌ Modal error response:", errorText);
-        throw new Error(
-          `Modal thumbnail generation failed: ${modalResponse.status} - ${errorText}`,
-        );
-      }
-
-      console.log("✅ Modal responded successfully, reading thumbnail data...");
-      const thumbnailBuffer = Buffer.from(await modalResponse.arrayBuffer());
-      console.log("📁 Thumbnail size:", thumbnailBuffer.byteLength, "bytes");
-
-      // Upload to S3 using the existing working utility (no ACLs)
-      console.log(
-        "📁 Uploading project thumbnail to S3 using existing utility...",
-      );
-      const thumbnailKey = `thumbnails/projects/${projectId}/thumbnail_${Date.now()}.jpeg`;
-
-      const uploadResult = await uploadToS3(
-        thumbnailKey,
-        thumbnailBuffer,
-        "image/jpeg",
-      );
-
-      if (!uploadResult.success) {
-        throw new Error(`S3 upload failed: ${uploadResult.error}`);
-      }
-      console.log("✅ PROJECT THUMBNAIL: Uploaded to S3:", thumbnailKey);
-
-      // Generate the public URL for the thumbnail (same pattern as existing code)
-      const projectThumbnailUrl = `https://${env.S3_BUCKET_NAME}.s3.${env.AWS_REGION}.amazonaws.com/chunkwise/${thumbnailKey}`;
-      console.log("📁 Project thumbnail URL:", projectThumbnailUrl);
-
-      // Update the database with the new thumbnail URL
-      await db.uploadedFile.update({
-        where: { id: projectId },
-        data: { thumbnailUrl: projectThumbnailUrl },
-      });
-      console.log("✅ PROJECT THUMBNAIL: Database updated");
-
-      thumbnails.projectThumbnail = projectThumbnailUrl;
-      console.log("📁 PROJECT THUMBNAIL: Generated successfully");
-    }
-
-    // Step 3b: Generate clip thumbnail if requested
-    if (clipId) {
-      console.log("🎬 Generating CLIP thumbnail...");
-      console.log("Looking up clip:", clipId);
-
-      const clip = await db.clip.findFirst({
-        where: {
-          id: clipId,
-          userId: session.user.id,
-        },
-      });
-
-      if (!clip) {
-        console.log("❌ CLIP NOT FOUND:", clipId);
-        throw new Error("Clip not found");
-      }
-      console.log("✅ CLIP FOUND: S3 Key:", clip.s3Key);
-
-      console.log(
-        "🎬 Generating signed URL for clip using existing utility...",
-      );
-      // Use the existing working utility to get signed URL
-      const clipUrlResult = await getVideoDownloadUrl(clip.s3Key);
-      if (!clipUrlResult.success || !clipUrlResult.url) {
-        throw new Error(
-          `Failed to generate signed URL: ${clipUrlResult.error}`,
-        );
-      }
-      console.log("✅ CLIP SIGNED URL: Generated using existing utility");
-
-      console.log("🎬 Calling Modal for clip thumbnail...");
-      // Call Modal endpoint for clip thumbnail
-      const modalResponse = await fetch(env.THUMBNAIL_GENERATION_ENDPOINT, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${env.PROCESS_VIDEO_ENDPOINT_AUTH}`,
-        },
-        body: JSON.stringify({
-          video_url: clipUrlResult.url,
-          time_offset: timeOffset,
-        }),
-      });
-
-      console.log("🎬 Modal response status:", modalResponse.status);
-
-      if (!modalResponse.ok) {
-        const errorText = await modalResponse.text();
-        console.log("❌ Modal error response:", errorText);
-        throw new Error(
-          `Modal thumbnail generation failed: ${modalResponse.status} - ${errorText}`,
-        );
-      }
-
-      console.log("✅ Modal responded successfully, reading thumbnail data...");
-      const thumbnailBuffer = Buffer.from(await modalResponse.arrayBuffer());
-      console.log("🎬 Thumbnail size:", thumbnailBuffer.byteLength, "bytes");
-
-      // Upload to S3 using the existing working utility (no ACLs)
-      console.log(
-        "🎬 Uploading clip thumbnail to S3 using existing utility...",
-      );
-      const thumbnailKey = `thumbnails/clips/${clipId}/thumbnail_${Date.now()}.jpeg`;
-
-      const uploadResult = await uploadToS3(
-        thumbnailKey,
-        thumbnailBuffer,
-        "image/jpeg",
-      );
-
-      if (!uploadResult.success) {
-        throw new Error(`S3 upload failed: ${uploadResult.error}`);
-      }
-      console.log("✅ CLIP THUMBNAIL: Uploaded to S3:", thumbnailKey);
-
-      // Generate the public URL for the thumbnail (same pattern as existing code)
-      const clipThumbnailUrl = `https://${env.S3_BUCKET_NAME}.s3.${env.AWS_REGION}.amazonaws.com/chunkwise/${thumbnailKey}`;
-      console.log("🎬 Clip thumbnail URL:", clipThumbnailUrl);
-
-      // Update the database with the new thumbnail URL
-      await db.clip.update({
-        where: { id: clipId },
-        data: { thumbnailUrl: clipThumbnailUrl },
-      });
-      console.log("✅ CLIP THUMBNAIL: Database updated");
-
-      thumbnails.clipThumbnail = clipThumbnailUrl;
-      console.log("🎬 CLIP THUMBNAIL: Generated successfully");
-    }
-
-    console.log("🎉 THUMBNAIL GENERATION COMPLETE");
-    console.log("Results:", thumbnails);
-    return { success: true, thumbnails };
-  } catch (error) {
-    console.log("❌ THUMBNAIL GENERATION ERROR:");
-    console.error(error);
-    throw new Error(
-      `Thumbnail generation failed: ${error instanceof Error ? error.message : "Unknown error"}`,
-    );
-  }
+  // Assuming PROCESS_VIDEO_ENDPOINT is the base URL of the Modal app service
+  // and /generate_thumbnail is the specific path for thumbnails.
+  // If PROCESS_VIDEO_ENDPOINT already includes a path, this logic might need adjustment.
+  // For now, let's assume it's a base URL like https://your-modal-app.modal.run
+  // and we need to append /generate_thumbnail
+  const baseUrl = env.PROCESS_VIDEO_ENDPOINT.replace(/\/*$/, ""); // Remove trailing slashes if any
+  return `${baseUrl}/generate_thumbnail`;
 }
 
-export async function generateProjectThumbnails(projectId: string) {
+// --- Core Internal Thumbnail Generation Logic --- 
+interface InternalThumbnailParams {
+  videoUrl: string; // Actual downloadable URL for the video
+  timeOffset: number;
+  authToken: string | null; // Auth token for the backend service, null if not needed
+}
+
+async function _fetchThumbnailFromBackend(
+  params: InternalThumbnailParams,
+): Promise<Buffer> {
+  const thumbnailBackendUrl = getThumbnailBackendUrl();
+  console.log(
+    `  📞 Calling backend for thumbnail: ${thumbnailBackendUrl} at offset ${params.timeOffset}s`,
+  );
+
+  const headers: HeadersInit = {
+    "Content-Type": "application/json",
+  };
+  if (params.authToken) {
+    headers.Authorization = `Bearer ${params.authToken}`;
+  }
+
+  const response = await fetch(thumbnailBackendUrl, {
+    method: "POST",
+    headers: headers,
+    body: JSON.stringify({
+      video_url: params.videoUrl,
+      time_offset: params.timeOffset,
+      // width, height, output_format can be defaulted by the backend or made params here
+    }),
+  });
+
+  console.log(`  ↪️ Backend response status: ${response.status}`);
+  if (!response.ok) {
+    const errorText = await response
+      .text()
+      .catch(() => "Failed to get error text");
+    console.error("❌ Backend thumbnail generation failed:", errorText);
+    throw new Error(
+      `Backend thumbnail generation failed: ${response.status} - ${errorText}`,
+    );
+  }
+  return Buffer.from(await response.arrayBuffer());
+}
+
+interface ProcessedThumbnailResult {
+  thumbnailUrl: string;
+  s3Key: string;
+}
+
+async function _processAndStoreThumbnail(
+  targetId: string, // projectId or clipId
+  idType: "project" | "clip",
+  originalVideoS3Key: string, // Used to get download URL for backend processing
+  timeOffset: number,
+  authToken: string | null, // For calling the backend service
+): Promise<ProcessedThumbnailResult> {
+  console.log(
+    `⚙️ _processAndStoreThumbnail for ${idType} '${targetId}' from video '${originalVideoS3Key}' at ${timeOffset}s`,
+  );
+
+  const videoDownloadUrlResult = await getVideoDownloadUrl(originalVideoS3Key);
+  if (!videoDownloadUrlResult.success || !videoDownloadUrlResult.url) {
+    throw new Error(
+      `Failed to generate signed URL for ${originalVideoS3Key}: ${videoDownloadUrlResult.error}`,
+    );
+  }
+  console.log(`  ✅ Generated video download URL.`);
+
+  const thumbnailBuffer = await _fetchThumbnailFromBackend({
+    videoUrl: videoDownloadUrlResult.url,
+    timeOffset,
+    authToken,
+  });
+  console.log(
+    `  🖼️ Thumbnail buffer size: ${thumbnailBuffer.byteLength} bytes`,
+  );
+
+  const s3SubPath =
+    idType === "project"
+      ? `thumbnails/projects/${targetId}`
+      : `thumbnails/clips/${targetId}`;
+  const thumbnailS3Key = `${s3SubPath}/thumbnail_${Date.now()}.jpeg`;
+
+  const uploadResult = await uploadToS3(
+    thumbnailS3Key, // This will be prefixed with CHUNKWISE_S3_PREFIX by uploadToS3
+    thumbnailBuffer,
+    "image/jpeg",
+  );
+  if (!uploadResult.success || !uploadResult.s3Key) {
+    // uploadToS3 returns the full key including prefix
+    throw new Error(`S3 upload failed: ${uploadResult.error}`);
+  }
+  // uploadResult.s3Key already includes the CHUNKWISE_S3_PREFIX, e.g., 'chunkwise/thumbnails/projects/...'
+  const finalS3Key = uploadResult.s3Key;
+  console.log(`  ☁️ Thumbnail uploaded to S3: ${finalS3Key}`);
+
+  const publicThumbnailUrl = `https://${env.S3_BUCKET_NAME}.s3.${env.AWS_REGION}.amazonaws.com/${finalS3Key}`;
+  console.log(`  🔗 Public thumbnail URL: ${publicThumbnailUrl}`);
+
+  if (idType === "project") {
+    await db.uploadedFile.update({
+      where: { id: targetId },
+      data: { thumbnailUrl: publicThumbnailUrl },
+    });
+  } else {
+    await db.clip.update({
+      where: { id: targetId },
+      data: { thumbnailUrl: publicThumbnailUrl },
+    });
+  }
+  console.log(`  💾 Database updated for ${idType} '${targetId}'.`);
+  return { thumbnailUrl: publicThumbnailUrl, s3Key: finalS3Key };
+}
+
+// --- Public-Facing and Server-Side Functions ---
+
+// For client-side calls, requires auth session
+export async function generateSingleThumbnail(
+  options: ThumbnailGenerationOptions,
+): Promise<{ success: boolean; thumbnailUrl?: string; error?: string }> {
+  console.log("🎬 generateSingleThumbnail (authed) called with:", options);
   const session = await auth();
   if (!session?.user?.id) {
-    throw new Error("Unauthorized");
+    console.error(
+      "❌ AUTH FAILED: No session or user ID for generateSingleThumbnail",
+    );
+    return { success: false, error: "Unauthorized" };
+  }
+  const userId = session.user.id;
+  console.log("  ✅ AUTH SUCCESS: User ID:", userId);
+
+  const { projectId, clipId, videoS3Key, timeOffset = 10 } = options;
+
+  if (!projectId && !clipId) {
+    return { success: false, error: "projectId or clipId is required" };
+  }
+  if (!videoS3Key) {
+    return { success: false, error: "videoS3Key is required" };
   }
 
   try {
-    // Get project and its clips with explicit typing
-    const project = await db.uploadedFile.findFirst({
-      where: {
-        id: projectId,
-        userId: session.user.id,
-      },
-    });
+    const targetId = projectId ?? clipId!;
+    const idType = projectId ? "project" : "clip";
 
-    if (!project) {
-      throw new Error("Project not found");
+    // Ensure user owns the project/clip
+    if (idType === "project") {
+      const project = await db.uploadedFile.findFirst({
+        where: { id: targetId, userId },
+      });
+      if (!project)
+        return { success: false, error: "Project not found or access denied" };
+    } else {
+      const clip = await db.clip.findFirst({ where: { id: targetId, userId } });
+      if (!clip)
+        return { success: false, error: "Clip not found or access denied" };
     }
 
-    // Get clips separately to match the pattern used in other parts of the codebase
-    const clips = await db.clip.findMany({
-      where: {
-        uploadedFileId: projectId,
-        userId: session.user.id,
-      },
-    });
-
-    const results: Array<{
-      type: string;
-      clipId?: string;
-      [key: string]: unknown;
-    }> = [];
-
-    // Generate main project thumbnail (from 10 seconds into the video)
-    // Always regenerate project thumbnail to ensure it's working
-    console.log(
-      `Generating main thumbnail for project ${projectId} (forced regeneration)`,
+    const result = await _processAndStoreThumbnail(
+      targetId,
+      idType,
+      videoS3Key,
+      timeOffset,
+      env.PROCESS_VIDEO_ENDPOINT_AUTH, // Auth token for backend service
     );
-    const mainThumbnail = await generateThumbnail({
-      projectId,
-      videoS3Key: project.s3Key,
-      timeOffset: 10, // 10 seconds into the video for main thumbnail
-    });
-    results.push({ type: "project", ...mainThumbnail });
-
-    // Use the clips from the separate query
-    // Generate thumbnails for clips that don't have them
-    for (const [index, clip] of clips.entries()) {
-      // Type assertion needed due to TypeScript not recognizing thumbnailUrl field
-      const clipWithThumbnail = clip as typeof clip & { thumbnailUrl?: string };
-
-      if (!clipWithThumbnail.thumbnailUrl) {
-        console.log(`Generating thumbnail for clip ${clip.id}`);
-
-        // Calculate time offset for this clip
-        // Use 5 seconds into each clip, plus an estimated offset based on clip order
-        // Assuming clips are roughly 5 minutes each
-        const estimatedClipStart = index * 300; // 5 minutes per clip
-        const clipThumbnailOffset = Math.max(5, estimatedClipStart + 30); // 30 seconds into each clip
-
-        const clipThumbnail = await generateThumbnail({
-          clipId: clip.id,
-          videoS3Key: clip.s3Key,
-          timeOffset: clipThumbnailOffset,
-        });
-        results.push({ type: "clip", clipId: clip.id, ...clipThumbnail });
-      }
-    }
-
-    return {
-      success: true,
-      results,
-      projectId,
-    };
+    return { success: true, thumbnailUrl: result.thumbnailUrl };
   } catch (error) {
-    console.error("Error generating project thumbnails:", error);
+    console.error("❌ Error in generateSingleThumbnail:", error);
     return {
       success: false,
-      error:
-        error instanceof Error
-          ? error.message
-          : "Failed to generate thumbnails",
+      error: error instanceof Error ? error.message : "Unknown error",
     };
   }
 }
 
-export async function batchGenerateThumbnails(projectIds: string[]) {
-  const results: Array<{ projectId: string; [key: string]: unknown }> = [];
+// For server-side calls (e.g., Inngest), skips session auth, uses passed userId if needed for DB access
+export async function generateSingleThumbnailServerSide(
+  options: ThumbnailGenerationOptions & { userId?: string }, // userId might be needed if not inferable
+): Promise<{ success: boolean; thumbnailUrl?: string; error?: string }> {
+  console.log("🎬 generateSingleThumbnailServerSide called with:", options);
+  const { projectId, clipId, videoS3Key, timeOffset = 10, userId } = options;
 
-  for (const projectId of projectIds) {
+  if (!projectId && !clipId) {
+    return {
+      success: false,
+      error: "projectId or clipId is required for server-side generation",
+    };
+  }
+  if (!videoS3Key) {
+    return {
+      success: false,
+      error: "videoS3Key is required for server-side generation",
+    };
+  }
+
+  try {
+    const targetId = projectId ?? clipId!;
+    const idType = projectId ? "project" : "clip";
+
+    // userId for DB ownership checks if necessary, but the primary auth is for backend service call
+    // For server calls, we trust the caller regarding ownership if userId is not strictly needed for lookup itself.
+
+    const result = await _processAndStoreThumbnail(
+      targetId,
+      idType,
+      videoS3Key,
+      timeOffset,
+      env.PROCESS_VIDEO_ENDPOINT_AUTH, // Auth token for backend service
+    );
+    return { success: true, thumbnailUrl: result.thumbnailUrl };
+  } catch (error) {
+    console.error("❌ Error in generateSingleThumbnailServerSide:", error);
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : "Unknown error",
+    };
+  }
+}
+
+export async function generateProjectAndClipThumbnails(
+  projectId: string,
+  userId: string, // User ID for ownership checks
+): Promise<{ success: boolean; error?: string; results?: Array<unknown> }> {
+  console.log(
+    `🛠️ generateProjectAndClipThumbnails for project ${projectId}, user ${userId}`,
+  );
+  try {
+    const project = await db.uploadedFile.findFirst({
+      where: { id: projectId, userId },
+    });
+    if (!project) {
+      return { success: false, error: "Project not found or access denied" };
+    }
+
+    const results = [];
+
+    // Generate main project thumbnail
+    console.log(`  🖼️ Generating main project thumbnail for ${project.id}...`);
+    const projectThumbResult = await generateSingleThumbnail({
+      projectId: project.id,
+      videoS3Key: project.s3Key,
+      timeOffset: 10, // Default for main project thumbnail
+    });
+    results.push({ type: "project", id: project.id, ...projectThumbResult });
+
+    const clips = await db.clip.findMany({
+      where: { uploadedFileId: projectId, userId },
+      orderBy: { createdAt: "asc" },
+    });
+    console.log(`  Found ${clips.length} clips for project ${project.id}.`);
+
+    for (const [index, clip] of clips.entries()) {
+      if (!clip.thumbnailUrl) {
+        // Only generate if missing
+        console.log(
+          `    🖼️ Generating thumbnail for clip ${index + 1}/${clips.length} (ID: ${clip.id})...`,
+        );
+        let clipTimeOffset = 30; // Default into the clip
+        if (clip.chunks) {
+          try {
+            const chunkDataInput: unknown =
+              typeof clip.chunks === "string"
+                ? JSON.parse(clip.chunks)
+                : clip.chunks;
+            if (chunkDataInput && typeof chunkDataInput === "object") {
+              const startTime =
+                Number((chunkDataInput as { start?: number }).start) || 0;
+              const endTime =
+                Number((chunkDataInput as { end?: number }).end) ||
+                startTime + 60;
+              const chunkDuration = Math.max(0, endTime - startTime);
+              const offsetIntoChunk = Math.min(30, chunkDuration / 2);
+              clipTimeOffset = startTime + offsetIntoChunk;
+            }
+          } catch (e) {
+            console.warn("Could not parse clip chunk data for timeOffset", e);
+          }
+        }
+
+        const clipThumbResult = await generateSingleThumbnail({
+          clipId: clip.id,
+          videoS3Key: project.s3Key, // Always use original project S3 key for virtual clips
+          timeOffset: clipTimeOffset,
+        });
+        results.push({ type: "clip", id: clip.id, ...clipThumbResult });
+      } else {
+        console.log(
+          `    ⏭️ Skipping thumbnail for clip ${clip.id}, already exists.`,
+        );
+      }
+    }
+    return { success: true, results };
+  } catch (error) {
+    console.error("❌ Error in generateProjectAndClipThumbnails:", error);
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : "Unknown error",
+    };
+  }
+}
+
+// Server-side equivalent for Inngest
+export async function generateProjectAndClipThumbnailsServerSide(
+  projectId: string,
+  // userId is optional here, as Inngest might operate without a direct user session but needs to know for whom
+  // However, the underlying single thumbnail generation if it needs to verify project ownership would need it.
+  // For simplicity, let's assume project is already validated or looked up by trusted ID by the caller.
+): Promise<{ success: boolean; error?: string; results?: Array<unknown> }> {
+  console.log(
+    `🛠️ generateProjectAndClipThumbnailsServerSide for project ${projectId}`,
+  );
+  try {
+    const project = await db.uploadedFile.findFirst({
+      where: { id: projectId }, // No userId check, assuming server context call is trusted
+    });
+    if (!project) {
+      return { success: false, error: "Project not found (server-side)" };
+    }
+
+    const results = [];
+
+    console.log(
+      `  🖼️ Generating main project thumbnail for ${project.id} (server-side)...`,
+    );
+    const projectThumbResult = await generateSingleThumbnailServerSide({
+      projectId: project.id,
+      videoS3Key: project.s3Key,
+      timeOffset: 10,
+    });
+    results.push({ type: "project", id: project.id, ...projectThumbResult });
+
+    const clips = await db.clip.findMany({
+      where: { uploadedFileId: projectId }, // No userId check
+      orderBy: { createdAt: "asc" },
+    });
+    console.log(
+      `  Found ${clips.length} clips for project ${project.id} (server-side).`,
+    );
+
+    for (const [index, clip] of clips.entries()) {
+      if (!clip.thumbnailUrl) {
+        console.log(
+          `    🖼️ Generating thumbnail for clip ${index + 1}/${clips.length} (ID: ${clip.id}) (server-side)...`,
+        );
+        let clipTimeOffset = 30;
+        if (clip.chunks) {
+          try {
+            const chunkDataInput: unknown =
+              typeof clip.chunks === "string"
+                ? JSON.parse(clip.chunks)
+                : clip.chunks;
+            if (chunkDataInput && typeof chunkDataInput === "object") {
+              const startTime =
+                Number((chunkDataInput as { start?: number }).start) || 0;
+              const endTime =
+                Number((chunkDataInput as { end?: number }).end) ||
+                startTime + 60;
+              const chunkDuration = Math.max(0, endTime - startTime);
+              const offsetIntoChunk = Math.min(30, chunkDuration / 2);
+              clipTimeOffset = startTime + offsetIntoChunk;
+            }
+          } catch (e) {
+            console.warn(
+              "Could not parse clip chunk data for timeOffset (server-side)",
+              e,
+            );
+          }
+        }
+
+        const clipThumbResult = await generateSingleThumbnailServerSide({
+          clipId: clip.id,
+          videoS3Key: project.s3Key,
+          timeOffset: clipTimeOffset,
+        });
+        results.push({ type: "clip", id: clip.id, ...clipThumbResult });
+      } else {
+        console.log(
+          `    ⏭️ Skipping thumbnail for clip ${clip.id}, already exists (server-side).`,
+        );
+      }
+    }
+    return { success: true, results };
+  } catch (error) {
+    console.error(
+      "❌ Error in generateProjectAndClipThumbnailsServerSide:",
+      error,
+    );
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : "Unknown error",
+    };
+  }
+}
+
+export async function batchGenerateThumbnails(
+  projectIds: string[],
+  userId: string,
+) {
+  console.log(
+    `=== BATCH THUMBNAIL GENERATION FOR ${projectIds.length} PROJECTS (User: ${userId}) ===`,
+  );
+  const results: Array<{
+    projectId: string;
+    success: boolean;
+    error?: string;
+    results?: Array<unknown>;
+  }> = [];
+
+  for (const [index, projectId] of projectIds.entries()) {
     try {
-      const result = await generateProjectThumbnails(projectId);
+      console.log(
+        `  📁 Processing project ${index + 1}/${projectIds.length}: ${projectId}`,
+      );
+      const result = await generateProjectAndClipThumbnails(projectId, userId);
       results.push({ projectId, ...result });
+      console.log(
+        `  ✅ Project ${index + 1}/${projectIds.length} completed with success: ${result.success}`,
+      );
     } catch (error) {
+      console.error(
+        `  ❌ Project ${index + 1}/${projectIds.length} (${projectId}) failed batch processing:`,
+        error,
+      );
       results.push({
         projectId,
         success: false,
@@ -352,6 +458,9 @@ export async function batchGenerateThumbnails(projectIds: string[]) {
       });
     }
   }
-
+  console.log(`🎉 BATCH COMPLETE: Processed ${projectIds.length} projects`);
   return results;
 }
+
+// The old generateThumbnail, generateProjectThumbnails, generateThumbnailServerSide, 
+// generateProjectThumbnailsServerSide, and batchGenerateThumbnails functions are replaced by the above.

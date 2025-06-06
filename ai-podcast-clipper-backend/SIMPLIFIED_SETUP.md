@@ -1,217 +1,202 @@
-# 🚀 Simplified AI Podcast Clipper Backend
+# 🚀 Simplified AI Podcast Clipper Backend (Chunkwise Processor Focused)
 
-This is a **simplified version** of the AI Podcast Clipper backend that focuses solely on **downloading and chopping YouTube videos** without complex face detection and video processing.
+This document describes the AI Podcast Clipper backend, which now primarily relies on **`chunkwise_processor.py`**. This processor focuses on **downloading YouTube videos, transcribing them, and enabling virtual chunking** without complex legacy video processing.
 
-## 🔄 What Was Removed
+## 🔄 What Was Removed (Previously)
 
-### ❌ Removed Components
+These components were part of an older, more complex system and are not in the current `chunkwise_processor.py`:
 - **LR-ASD library** - Face detection and speaker identification
-- **ASD directory** - Scene detection algorithms  
+- **ASD directory** - Scene detection algorithms
 - **OpenCV** - Computer vision processing
 - **ffmpegcv** - Advanced video manipulation
 - **Complex video resizing** - Vertical video creation with face tracking
 - **Face tracking and cropping** - Automatic speaker following
 - **Scene detection** - Video content analysis
+- **Physical video chunking** (creating separate files for each chunk during initial processing)
+- **Standalone YouTube metadata extraction endpoint** (previously in `main.py`)
 
-### ✅ What Remains
+## ✅ What Remains (in `chunkwise_processor.py`)
 - **YouTube video downloading** with yt-dlp
-- **Basic video cutting** and segmentation
-- **WhisperX transcription** for speech-to-text
-- **Gemini AI** for moment identification
-- **Basic subtitle generation**
-- **S3 upload** functionality
-- **FastAPI endpoints** for API access
+- **Full video transcription** using WhisperX (once per video)
+- **Virtual chunking**: Defining chunk boundaries (start/end times) over the original video and its transcript.
+- **Re-chunking**: Ability to apply new chunk configurations to already processed videos and their transcripts.
+- **Thumbnail generation** from video at specified time offsets.
+- **S3 upload** functionality for original videos and potentially thumbnails.
+- **FastAPI endpoints** via Modal for API access to the `ChunkwiseProcessor`.
 
 ## 📋 Current Dependencies
-
+(Ensure `requirements.txt` is up-to-date with `chunkwise_processor.py` needs)
 ```txt
 tqdm
 torch
 numpy
 scipy
-gdown
-pandas
+gdown # Review if still needed by chunkwise_processor or its dependencies
+pandas # Review if still needed
 transformers
 accelerate
-datasets
-google-genai
-pysubs2
+datasets # Review if still needed
+# google-genai removed - was for old pipeline logic not in chunkwise_processor
+# pysubs2 removed - was for old pipeline logic not in chunkwise_processor
 boto3
 fastapi[standard]
 whisperx
 yt-dlp
+requests
 ```
+*Note: Some dependencies listed might be from the older `main.py` setup. Review `chunkwise_processor.py` and `requirements.txt` for actual current needs. `youtube-search-python` and `psycopg2-binary` have been removed.*
 
-## 🏗️ Architecture
+## 🏗️ Architecture (`chunkwise_processor.py`)
 
-### Modal Image Configuration
+### Modal Image Configuration (from `chunkwise_processor.py`)
 ```python
-image = (modal.Image.from_registry(
-    "nvidia/cuda:12.4.0-devel-ubuntu22.04", add_python="3.12")
+image = (
+    modal.Image.from_registry("nvidia/cuda:11.3.1-cudnn8-devel-ubuntu20.04", add_python="3.12")
+    .env({"DEBIAN_FRONTEND": "noninteractive", "TZ": "Etc/UTC"})
     .apt_install(["ffmpeg", "libgl1-mesa-glx", "wget"])
     .pip_install_from_requirements("requirements.txt")
-    .run_commands([
-        "mkdir -p /usr/share/fonts/truetype/custom",
-        "wget -O /usr/share/fonts/truetype/custom/Anton-Regular.ttf https://github.com/google/fonts/raw/main/ofl/anton/Anton-Regular.ttf",
-        "fc-cache -f -v"
-    ]))
+)
+
+volume = modal.Volume.from_name("ai-podcast-clipper-model-cache", create_if_missing=True)
+mount_path = "/root/.cache/torch"
+app = modal.App("chunkwise-processor", image=image)
 ```
 
-### API Endpoints
+### API Endpoints (served by `chunkwise_processor.py`)
 
-1. **`GET /api/youtube/metadata`**
-   - Extract YouTube video metadata without downloading
-   - Parameters: `url` (YouTube video URL)
-   - Returns: Video title, duration, channel, thumbnail, etc.
+1.  **`POST /process_video_endpoint`**
+    -   This is the primary endpoint for all video processing.
+    -   Accessible via the URL configured in `env.PROCESS_VIDEO_ENDPOINT`.
+    -   Processes YouTube videos or existing S3 videos for virtual chunking and transcription.
+    -   Handles initial processing and re-chunking.
+    -   Payload for YouTube: `{"youtube_url": "...", "video_id": "...", "chunk_config": {...}}`
+    -   Payload for S3 re-chunk: `{"s3_key": "...", "video_id": "...", "chunk_config": {...}, "existing_transcript": [...]}`
+    -   Returns: Video info, S3 key, chunk metadata, full transcript.
 
-2. **`POST /process_video`**
-   - Process pre-uploaded S3 video file
-   - Body: `{"s3_key": "path/to/video.mp4"}`
-   - Returns: Processed clips with subtitles
+2.  **`POST /generate_thumbnail`**
+    -   Generates a thumbnail from a video URL or S3 key at a specific time offset.
+    -   Payload: `{"video_url": "...", "time_offset": ..., "width": ..., "height": ..., "output_format": "jpeg/png"}`
+    -   Requires auth token passed as `Bearer <env.PROCESS_VIDEO_ENDPOINT_AUTH>`.
+    -   Returns: Thumbnail image bytes.
 
-3. **`POST /process_youtube_video`** ⭐ **NEW**
-   - Download and process YouTube video directly
-   - Body: `{"youtube_url": "https://youtube.com/watch?v=..."}`
-   - Returns: Processed clips with metadata
+## 🔧 Core Methods in `ChunkwiseProcessor` (from `chunkwise_processor.py`)
 
-## 🔧 Core Functions
+### `process_youtube_video(request_data: dict)`
+- Downloads YouTube video.
+- Uploads original to S3.
+- Transcribes the full video.
+- Generates virtual chunk metadata based on `chunk_config`.
+- Returns structured data including transcript and chunk definitions.
 
-### `download_youtube_video(youtube_url, output_path)`
-- Downloads YouTube video using yt-dlp
-- Returns video metadata
-- Supports multiple formats (best quality MP4)
+### `process_s3_video(request_data: dict)`
+- Used for re-chunking existing S3 videos.
+- Takes an S3 key, new `chunk_config`, and optionally an existing transcript.
+- Generates new virtual chunk metadata.
+- Does not re-transcribe if a transcript is provided.
 
-### `process_simple_clip(base_dir, video_path, s3_key, start_time, end_time, clip_index, transcript_segments)`
-- Cuts video segment using FFmpeg
-- Adds basic subtitles
-- Uploads to S3
-- **No face detection or complex processing**
-
-### `create_basic_subtitles(transcript_segments, clip_start, clip_end, clip_video_path, output_path)`
-- Creates ASS subtitle files
-- Applies subtitles using FFmpeg
-- Simple word grouping (5 words max per subtitle)
+### `generate_thumbnail(request_data: dict)`
+- Downloads video (if URL) or uses S3 path.
+- Extracts a frame using FFmpeg at `time_offset`.
+- Returns image data.
 
 ## 🚀 Deployment
 
 ### 1. Environment Setup
 ```bash
 cd ai-podcast-clipper-backend
-source venv/bin/activate
+# Ensure Python environment (e.g., venv) is active and requirements installed
+# source venv/bin/activate 
+# pip install -r requirements.txt
 ```
 
-### 2. Test Local Setup
+### 2. Deploy to Modal
 ```bash
-python test_simplified.py
+modal serve chunkwise_processor.py 
 ```
+*(The deployed application URL should be configured as `PROCESS_VIDEO_ENDPOINT` in your frontend environment. The auth token used by `chunkwise_processor.py` (from Modal secrets) should be configured as `PROCESS_VIDEO_ENDPOINT_AUTH` in your frontend environment for client-side calls or Inngest functions that call this endpoint.)*
 
-Expected output:
-```
-🧪 Testing simplified AI Podcast Clipper setup...
+### 3. Required Modal Secrets
+Set up these secrets in your Modal dashboard for the `chunkwise-processor` app:
+- `AUTH_TOKEN` - API authentication token used internally by the Modal app for its endpoints.
+- `AWS_ACCESS_KEY_ID` - AWS S3 access.
+- `AWS_SECRET_ACCESS_KEY` - AWS S3 secret.
+- *Review `chunkwise_processor.py` for any other secrets it might require (e.g., if any AI services for moment identification were re-introduced there).*
 
-1. Testing imports...
-✅ All basic imports successful
-
-2. Testing YouTube functionality...
-✅ YouTube metadata extraction successful
-   Title: Rick Astley - Never Gonna Give You Up (Official Music Video)
-   Duration: 212 seconds
-
-3. Testing FFmpeg...
-✅ FFmpeg is available
-
-🎉 All tests passed! Simplified setup is working correctly.
-```
-
-### 3. Deploy to Modal
-```bash
-modal serve main.py
-```
-
-### 4. Required Modal Secrets
-Set up these secrets in Modal dashboard:
-- `AUTH_TOKEN` - API authentication token
-- `GEMINI_API_KEY` - Google Gemini API key  
-- `AWS_ACCESS_KEY_ID` - AWS S3 access
-- `AWS_SECRET_ACCESS_KEY` - AWS S3 secret
-
-## 📊 Performance Benefits
+## 📊 Performance Benefits (of current `chunkwise_processor.py` approach)
 
 ### Resource Usage
-- **GPU**: Reduced from L40S to T4 (sufficient for WhisperX)
-- **Memory**: Significantly reduced (no OpenCV/face detection)
-- **Processing Time**: 70-80% faster per clip
-- **Dependencies**: 50% fewer packages
+- **GPU**: T4 (as specified in `chunkwise_processor.py`) for WhisperX.
+- **Processing Time**: Efficient transcription (once per video), fast re-chunking.
 
-### Processing Pipeline
+### Processing Pipeline (Conceptual for `chunkwise_processor.py`)
 ```
-YouTube URL → yt-dlp Download → WhisperX Transcription → 
-Gemini Moment Detection → Simple Video Cutting → 
-Basic Subtitles → S3 Upload
+YouTube URL/S3 Key → yt-dlp Download (if URL) → Full Transcription (WhisperX) → 
+Virtual Chunk Definition → S3 Upload (Original Video) → Thumbnail Generation (on demand)
 ```
 
 ## 🧪 Testing
 
-### Local Testing
-```bash
-# Test the main functionality
-python test_simplified.py
+### Modal Testing (Example for `chunkwise_processor.py`)
+Ensure `chunkwise_processor.py` is served via Modal. Configure its URL as `PROCESS_VIDEO_ENDPOINT` and its auth token as `PROCESS_VIDEO_ENDPOINT_AUTH` in your testing environment (e.g., `.env` file for local test scripts).
 
-# Test with actual YouTube URL
-curl -X POST "http://localhost:8000/process_youtube_video" \
-  -H "Content-Type: application/json" \
-  -H "Authorization: Bearer YOUR_TOKEN" \
-  -d '{"youtube_url": "https://www.youtube.com/watch?v=dQw4w9WgXcQ"}'
+**Test Video Processing (YouTube):**
+```bash
+# Replace YOUR_PROCESS_VIDEO_ENDPOINT_URL and YOUR_PROCESS_VIDEO_ENDPOINT_AUTH_TOKEN
+curl -X POST "YOUR_PROCESS_VIDEO_ENDPOINT_URL" \\
+  -H "Content-Type: application/json" \\
+  -H "Authorization: Bearer YOUR_PROCESS_VIDEO_ENDPOINT_AUTH_TOKEN" \\
+  -d \'{
+    "youtube_url": "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+    "video_id": "some-unique-video-id-123",
+    "chunk_config": {"method": "minutes", "minutesPerChunk": 5}
+  }\'
 ```
 
-### Modal Testing
+**Test Thumbnail Generation:**
 ```bash
-# Get the deployed endpoint URL
-modal serve main.py
+# Replace YOUR_PROCESS_VIDEO_ENDPOINT_URL and YOUR_PROCESS_VIDEO_ENDPOINT_AUTH_TOKEN
+# The /generate_thumbnail path is appended to your base PROCESS_VIDEO_ENDPOINT_URL if it points to the root of the Modal app.
+# Or, if PROCESS_VIDEO_ENDPOINT is the full path to /process_video_endpoint, then construct the thumbnail URL accordingly.
+# Assuming PROCESS_VIDEO_ENDPOINT is the base URL for the Modal app:
+THUMBNAIL_ENDPOINT_URL="$(echo $PROCESS_VIDEO_ENDPOINT | sed 's/[^/]*$/generate_thumbnail/')"
 
-# Test with curl
-curl -X GET "https://your-modal-url/api/youtube/metadata?url=https://www.youtube.com/watch?v=dQw4w9WgXcQ"
+curl -X POST "$THUMBNAIL_ENDPOINT_URL" \\
+  -H "Content-Type: application/json" \\
+  -H "Authorization: Bearer YOUR_PROCESS_VIDEO_ENDPOINT_AUTH_TOKEN" \\
+  -d \'{
+    "video_url": "https://link-to-your-video.mp4", 
+    "time_offset": 10,
+    "width": 640,
+    "height": 360
+  }\' --output test_thumb.jpg
 ```
+*(Note: `test_simplified.py` and other old test scripts related to `main.py` are likely obsolete.)*
 
 ## 🔍 Troubleshooting
 
 ### Common Issues
-
-1. **yt-dlp Download Failures**
-   - Check YouTube URL validity
-   - Ensure video is publicly accessible
-   - Check network connectivity
-
-2. **Modal Deployment Issues**
-   - Verify all secrets are set
-   - Check requirements.txt for package conflicts
-   - Monitor Modal build logs
-
-3. **FFmpeg Errors**
-   - Ensure input video format is supported
-   - Check disk space in /tmp
-   - Verify FFmpeg installation in Modal image
+1.  **yt-dlp Download Failures** (in `chunkwise_processor.py`)
+    -   Check YouTube URL validity.
+    -   Ensure video is publicly accessible.
+2.  **Modal Deployment Issues** (for `chunkwise_processor.py`)
+    -   Verify all necessary secrets are set in Modal.
+    -   Check `requirements.txt` for package compatibility.
+    -   Monitor Modal build and runtime logs for `chunkwise-processor` app.
+3.  **FFmpeg Errors**
+    -   Ensure input video format is supported by FFmpeg.
+    -   Check disk space in Modal container\'s `/tmp` if large files are processed.
 
 ### Debug Commands
 ```bash
-# Test yt-dlp locally
-python -c "import yt_dlp; print('yt-dlp working!')"
-
-# Test metadata extraction
-python -c "
-import yt_dlp
-ydl = yt_dlp.YoutubeDL({'quiet': True})
-info = ydl.extract_info('https://www.youtube.com/watch?v=dQw4w9WgXcQ', download=False)
-print(f'Title: {info.get(\"title\")}')
-"
+# Test yt-dlp locally (if Python env is set up)
+python -c "import yt_dlp; print(yt_dlp.version.__version__)"
 ```
 
-## 🎯 Next Steps
+## 🎯 Next Steps (General)
+1.  **Frontend Integration**: Ensure frontend exclusively uses `chunkwise_processor.py` endpoints via `env.PROCESS_VIDEO_ENDPOINT` and `env.PROCESS_VIDEO_ENDPOINT_AUTH`.
+2.  **Error Handling**: Enhance error handling in `chunkwise_processor.py`.
+3.  **Monitoring & Logging**: Implement robust logging for the `chunkwise-processor` Modal app.
+4.  **Dependency Review**: Clean up `requirements.txt` based on actual needs of `chunkwise_processor.py` (e.g. `gdown`, `pandas`, `pyannote.audio`, `datasets`, `tqdm`).
+5.  **Testing**: Develop specific tests for `chunkwise_processor.py` methods and endpoints.
 
-1. **Frontend Integration**: Update frontend to use new simplified endpoints
-2. **Error Handling**: Add more robust error handling for edge cases
-3. **Monitoring**: Add logging and monitoring for production deployment
-4. **Optimization**: Further optimize video processing pipeline
-5. **Testing**: Add comprehensive unit and integration tests
-
-This simplified version provides the core functionality needed for downloading and processing YouTube videos while being much more maintainable and resource-efficient. 
+This document reflects the backend refocused on `chunkwise_processor.py` for a maintainable and resource-efficient video processing pipeline. 

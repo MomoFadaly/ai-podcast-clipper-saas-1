@@ -1,0 +1,40 @@
+/* ChunkedVideoPlayer specific styles */
+.chunkedVideoContainer {
+  position: relative;
+  width: 100%;
+}
+
+/* Ensure the video player takes full width */
+.chunkedVideoContainer .video-js {
+  width: 100%;
+  height: auto;
+}
+
+/* Style the progress bar to show only chunk progress */
+.chunkedVideoContainer .vjs-progress-control {
+  position: relative;
+}
+
+/* Ensure time displays show chunk-relative time */
+.chunkedVideoContainer .vjs-current-time,
+.chunkedVideoContainer .vjs-duration {
+  font-family: inherit;
+}
+
+/* Hide any indicators that this is part of a larger video */
+.chunkedVideoContainer .vjs-remaining-time {
+  display: none;
+}
+
+/* Ensure seek bar represents only the chunk */
+.chunkedVideoContainer .vjs-progress-holder {
+  position: relative;
+}
+
+.chunkedVideoContainer .vjs-play-progress {
+  background-color: #007bff;
+}
+
+.chunkedVideoContainer .vjs-load-progress {
+  background-color: rgba(255, 255, 255, 0.3);
+} 

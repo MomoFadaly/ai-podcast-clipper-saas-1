@@ -1,5 +1,6 @@
 import { PrismaAdapter } from "@auth/prisma-adapter";
 import { type DefaultSession, type NextAuthConfig } from "next-auth";
+import { type JWT } from "next-auth/jwt";
 import CredentialsProvider from "next-auth/providers/credentials";
 import { comparePasswords } from "~/lib/auth";
 
@@ -15,6 +16,7 @@ declare module "next-auth" {
   interface Session extends DefaultSession {
     user: {
       id: string;
+      credits: number;
       // ...other properties
       // role: UserRole;
     } & DefaultSession["user"];
@@ -24,6 +26,12 @@ declare module "next-auth" {
   //   // ...other properties
   //   // role: UserRole;
   // }
+}
+
+declare module "next-auth/jwt" {
+  interface JWT {
+    id: string;
+  }
 }
 
 /**
@@ -72,23 +80,18 @@ export const authConfig = {
   },
   callbacks: {
     session: async ({ session, token }) => {
-      // Fetch user credits from DB
-      let credits = 0;
-      if (token.sub) {
-        const user = await db.user.findUnique({ where: { id: token.sub } });
-        credits = user?.credits ?? 0;
+      if (token && session.user) {
+        session.user.id = token.id;
+        const user = await db.user.findUnique({
+          where: { id: token.id },
+          select: { credits: true },
+        });
+        session.user.credits = user?.credits ?? 0;
       }
-      return {
-        ...session,
-        user: {
-          ...session.user,
-          id: token.sub,
-          credits,
-        },
-      };
+      return session;
     },
     jwt: ({ token, user }) => {
-      if (user) {
+      if (user?.id) {
         token.id = user.id;
       }
       return token;

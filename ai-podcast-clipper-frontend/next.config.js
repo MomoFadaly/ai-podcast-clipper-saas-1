@@ -5,6 +5,17 @@
 import "./src/env.js";
 
 /** @type {import("next").NextConfig} */
-const config = {};
+const config = {
+  images: {
+    remotePatterns: [
+      {
+        protocol: "https",
+        hostname: "ai-podcast-clipper.s3.us-east-2.amazonaws.com",
+        port: "",
+        pathname: "/**",
+      },
+    ],
+  },
+};
 
 export default config;

@@ -53,37 +53,6 @@ export async function createVideoRecord(_videoInfo: {
   };
 }
 
-// Generate signed URL for uploading video chunks (used by backend processing)
-export async function generateChunkUploadUrl(
-  videoId: string,
-  chunkNumber: number,
-  contentType = "video/mp4",
-): Promise<{
-  success: boolean;
-  signedUrl: string;
-  key: string;
-}> {
-  const s3Client = getS3Client();
-
-  const key = generateChunkwiseS3Key(
-    `videos/${videoId}/chunks/chunk-${chunkNumber}.mp4`,
-  );
-
-  const command = new PutObjectCommand({
-    Bucket: env.S3_BUCKET_NAME,
-    Key: key,
-    ContentType: contentType,
-  });
-
-  const signedUrl = await getSignedUrl(s3Client, command, { expiresIn: 3600 });
-
-  return {
-    success: true,
-    signedUrl,
-    key,
-  };
-}
-
 // Generate signed URL for uploading thumbnails
 export async function generateThumbnailUploadUrl(
   videoId: string,
@@ -122,38 +91,6 @@ export async function generateThumbnailUploadUrl(
   };
 }
 
-// Get signed URL for playing video chunks
-export async function getChunkPlayUrl(
-  chunkId: string,
-  s3Key: string,
-): Promise<{ success: boolean; url?: string; error?: string }> {
-  const session = await auth();
-  if (!session?.user?.id) {
-    return { success: false, error: "Unauthorized" };
-  }
-
-  try {
-    // TODO: Verify user has access to this chunk via Supabase query
-    // For now, we'll trust the s3Key is valid
-
-    const s3Client = getS3Client();
-
-    const command = new GetObjectCommand({
-      Bucket: env.S3_BUCKET_NAME,
-      Key: s3Key,
-    });
-
-    const signedUrl = await getSignedUrl(s3Client, command, {
-      expiresIn: 3600, // 1 hour access
-    });
-
-    return { success: true, url: signedUrl };
-  } catch (error) {
-    console.error("Error generating chunk play URL:", error);
-    return { success: false, error: "Failed to generate play URL." };
-  }
-}
-
 // Get signed URL for downloading original video (for backend processing)
 export async function getVideoDownloadUrl(
   s3Key: string,
@@ -177,54 +114,29 @@ export async function getVideoDownloadUrl(
   }
 }
 
-// List all chunks for a video
-export async function listVideoChunks(videoId: string) {
-  try {
-    const s3Client = getS3Client();
-    const prefix = generateChunkwiseS3Key(`videos/${videoId}/chunks/`);
-
-    const listCommand = new ListObjectsV2Command({
-      Bucket: env.S3_BUCKET_NAME,
-      Prefix: prefix,
-    });
-
-    const response = await s3Client.send(listCommand);
-    const chunkKeys =
-      response.Contents?.map((item) => item.Key).filter(Boolean) ?? [];
-
-    return {
-      success: true,
-      chunks: chunkKeys,
-    };
-  } catch (error) {
-    console.error("Error listing video chunks:", error);
-    return {
-      success: false,
-      chunks: [],
-      error: "Failed to list video chunks",
-    };
-  }
-}
-
-// Upload file directly to S3 (for backend use)
+// Upload file directly to S3 (for backend use or generated thumbnails)
 export async function uploadToS3(
   key: string,
   fileBuffer: Buffer,
   contentType: string,
-): Promise<{ success: boolean; error?: string }> {
+): Promise<{ success: boolean; error?: string; s3Key?: string }> {
   try {
     const s3Client = getS3Client();
+    const s3Prefix: string = env.CHUNKWISE_S3_PREFIX ?? "chunkwise/";
+    const finalKey = key.startsWith(s3Prefix)
+      ? key
+      : generateChunkwiseS3Key(key);
 
     const command = new PutObjectCommand({
       Bucket: env.S3_BUCKET_NAME,
-      Key: generateChunkwiseS3Key(key),
+      Key: finalKey,
       Body: fileBuffer,
       ContentType: contentType,
     });
 
     await s3Client.send(command);
 
-    return { success: true };
+    return { success: true, s3Key: finalKey };
   } catch (error) {
     console.error("Error uploading to S3:", error);
     return { success: false, error: "Failed to upload to S3" };

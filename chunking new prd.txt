@@ -1,0 +1,114 @@
+ 
+
+## 📄 Product Requirements Document (PRD)
+
+### 🧩 Feature Title:
+
+**Virtual Chunk Playback with Partial Video Loading**
+
+---
+
+### 🧠 Objective:
+
+Enable efficient, chunk-based video playback using a single full-length video file stored on S3, without downloading the entire file. Playback should begin and end at user-defined chunk times using Video.js and HTTP byte-range streaming.
+
+---
+
+### ✅ Goals:
+
+* Eliminate backend FFmpeg chunk generation per video
+* Serve only the relevant segment of a video for each chunk
+* Maintain smooth playback, seeking, note-taking, and transcript sync
+* Scale well to long videos (1–10+ hours)
+
+---
+
+### 📺 Key Features:
+
+#### 1. **Video.js-Based Virtual Chunk Playback**
+
+* Load full video asset (via Video.js)
+* Seek to `chunkStartTime`
+* Auto-pause at `chunkEndTime`
+* Disable seeking beyond chunk bounds  
+
+#### 2. **Byte-Range Streaming for Partial Downloads**
+
+* Leverage HTTP range requests from Video.js to load only relevant parts
+* Ensure all videos are encoded with `+faststart` flag to support seekable metadata
+
+#### 3. **Transcript + Note Integration**
+
+* Display only transcript lines relevant to the current chunk
+* Highlight current line during playback (`timeupdate` listener)
+* Allow in-line note-taking by hovering or selecting text
+* Highlight selected transcript text
+* Save notes and highlights per chunk
+
+#### 4. **Chunk Sidebar Navigation**
+
+* Show complete chunk list in a vertical sidebar (Udemy-style)
+* Clicking on a chunk loads it in the player without refreshing the full video
+* Show visual progress indicators per chunk (watched, notes, etc.)
+
+---
+
+### 🛠 Technical Requirements:
+
+#### 🎥 Video Handling
+
+* Use Video.js (React wrapper) for playback
+* Ensure video files are encoded with:
+
+  ```bash
+  ffmpeg -i input.mp4 -movflags +faststart output.mp4
+  ```
+* Set `preload="metadata"` in the player to avoid full preload
+* Video player should send range requests for streaming from S3
+
+#### 🌐 Backend/Infra
+
+* Store only the original, full-length video on S3
+* Support metadata schema:
+
+  ```json
+  {
+    "videoUrl": "https://s3.amazonaws.com/...",
+    "chunks": [
+      { "id": 1, "start": 60, "end": 300, "title": "Intro" },
+      { "id": 2, "start": 300, "end": 600, "title": "Setup" }
+    ],
+    "transcript": [
+      { "start": 60.1, "end": 62.5, "text": "Welcome to the course..." },
+      ...
+    ]
+  }
+  ```
+
+#### ⚙️ Optional: Proxy Server (Advanced)
+
+* Add Node.js proxy to enforce:
+
+  * Byte-range streaming
+  * Chunk-level start/end restriction
+  * Masking raw S3 URLs
+
+---
+
+### 🧪 UX Considerations
+
+* Add loading spinner per chunk
+* Display “Now viewing: Chunk 2 of 18” clearly
+* Show estimated time per chunk
+* Offer button to "Continue to next chunk"
+
+---
+
+### 🧩 Future Enhancements (not in scope now, but supported)
+
+* Inline quizzes per chunk
+* Flashcards from transcript
+* AI summary per chunk
+* Mobile-optimized playback
+
+--- 

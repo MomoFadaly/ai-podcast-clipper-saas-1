@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from "react";
 import { getThumbnailSignedUrl } from "~/actions/chunkwise-s3";
+import Image from "next/image";
 
 interface ThumbnailImageProps {
   thumbnailUrl?: string | null;
@@ -35,7 +36,7 @@ export function ThumbnailImage({
         if (result.success && result.url) {
           setSignedUrl(result.url);
         } else {
-          setError(result.error || "Failed to load thumbnail");
+          setError(result.error ?? "Failed to load thumbnail");
         }
       })
       .catch((err) => {
@@ -76,10 +77,12 @@ export function ThumbnailImage({
 
   if (signedUrl) {
     return (
-      <img
+      <Image
         src={signedUrl}
         alt={alt}
         className={className}
+        width={320}
+        height={180}
         onError={() => setError("Failed to load image")}
       />
     );

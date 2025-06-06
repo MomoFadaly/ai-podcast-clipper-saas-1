@@ -83,7 +83,7 @@ export function DashboardClient({
       if (!uploadResponse.ok)
         throw new Error(`Upload filed with status: ${uploadResponse.status}`);
 
-      await processVideo(uploadedFileId);
+      await processVideo(uploadedFileId, []);
 
       setFiles([]);
 

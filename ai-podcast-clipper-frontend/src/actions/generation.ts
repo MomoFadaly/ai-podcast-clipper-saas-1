@@ -20,6 +20,7 @@ export async function processVideo(
       uploaded: true,
       id: true,
       userId: true,
+      s3Key: true,
     },
   });
 
@@ -30,6 +31,7 @@ export async function processVideo(
     data: {
       uploadedFileId: uploadedVideo.id,
       userId: uploadedVideo.userId,
+      s3Key: uploadedVideo.s3Key,
       chunks,
     },
   });

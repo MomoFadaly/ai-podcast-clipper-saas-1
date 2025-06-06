@@ -6,8 +6,16 @@ import Link from "next/link";
 import { CompletionCheckbox } from "~/components/ui/completion-checkbox";
 import { cn } from "~/lib/utils";
 import type { ClipWithDetails } from "~/actions/projects";
-import { CheckIcon } from "lucide-react";
+import {
+  Play,
+  CheckCircle2,
+  Clock,
+  NotebookText,
+  ChevronRight,
+  RotateCw,
+} from "lucide-react";
 import { ThumbnailImage } from "~/components/ui/thumbnail-image";
+import { motion } from "framer-motion";
 
 interface ChunkCardProps {
   clip: ClipWithDetails;
@@ -49,10 +57,6 @@ export function ChunkCard({
     }
   };
 
-  const handleWatchChunk = () => {
-    router.push(`/dashboard/projects/${projectId}/clips/${clip.id}`);
-  };
-
   const formatWatchTime = (seconds: number) => {
     if (seconds === 0) return "Not started";
     const minutes = Math.floor(seconds / 60);
@@ -63,23 +67,25 @@ export function ChunkCard({
   const watchProgress = Math.min((clip.watchTime / 300) * 100, 100);
 
   return (
-    <div
+    <motion.div
+      whileHover={{ y: -4 }}
+      transition={{ type: "spring", stiffness: 300, damping: 30 }}
       className={cn(
-        "group relative cursor-pointer rounded-lg border bg-white p-4 transition-all duration-300 hover:shadow-lg",
+        "group relative cursor-pointer rounded-xl border bg-white transition-all duration-200",
         clip.isCompleted
-          ? "border-green-200 bg-gradient-to-br from-green-50 to-white shadow-md hover:border-green-300"
+          ? "border-green-200 shadow-sm hover:shadow-md"
           : "border-gray-200 hover:border-blue-300 hover:shadow-md",
       )}
     >
       {/* Main clickable link covering the entire card */}
       <Link
         href={`/dashboard/projects/${projectId}/clips/${clip.id}`}
-        className="absolute inset-0 z-10 rounded-lg focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 focus:outline-none"
+        className="absolute inset-0 z-10 rounded-xl focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 focus:outline-none"
         aria-label={`Watch Chunk ${index + 1}`}
       />
 
-      {/* Completion status indicator */}
-      <div className="absolute -top-2 -right-2 z-20">
+      {/* Completion status indicator - mobile optimized */}
+      <div className="absolute -top-2 -right-2 z-20 scale-90 sm:scale-100">
         <div onClick={(e) => e.stopPropagation()}>
           <CompletionCheckbox
             isCompleted={clip.isCompleted}
@@ -91,156 +97,169 @@ export function ChunkCard({
         </div>
       </div>
 
-      {/* Completed overlay effect */}
-      {clip.isCompleted && (
-        <div className="pointer-events-none absolute inset-0 rounded-lg bg-gradient-to-r from-green-400/10 to-green-600/5" />
-      )}
+      {/* Card content */}
+      <div className="p-3 sm:p-4">
+        {/* Thumbnail area - responsive */}
+        <div
+          className={cn(
+            "relative mb-3 aspect-video overflow-hidden rounded-lg bg-gray-100 transition-all duration-300",
+            clip.isCompleted ? "bg-green-50" : "group-hover:bg-blue-50",
+          )}
+        >
+          <ThumbnailImage
+            thumbnailUrl={clip.thumbnailUrl}
+            alt={`Chunk ${index + 1} thumbnail`}
+            className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-105"
+            fallback={
+              <div className="flex h-full w-full items-center justify-center bg-gradient-to-br from-gray-100 to-gray-200">
+                <Play className="h-8 w-8 text-gray-400" />
+              </div>
+            }
+          />
 
-      {/* Thumbnail area */}
-      <div
-        className={cn(
-          "relative mb-3 aspect-video overflow-hidden rounded bg-gray-100 transition-all duration-300",
-          clip.isCompleted ? "bg-green-100" : "group-hover:bg-blue-50",
-        )}
-      >
-        <ThumbnailImage
-          thumbnailUrl={clip.thumbnailUrl}
-          alt={`Chunk ${index + 1} thumbnail`}
-          className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-105"
-        />
-
-        {/* Overlay for completed status */}
-        {clip.isCompleted && clip.thumbnailUrl && (
-          <div className="absolute inset-0 flex items-center justify-center bg-green-900/20">
-            <div className="rounded-full bg-green-600 p-2 shadow-lg">
-              <svg
-                className="h-6 w-6 text-white"
-                fill="none"
-                stroke="currentColor"
-                viewBox="0 0 24 24"
+          {/* Overlay for completed status */}
+          {clip.isCompleted && clip.thumbnailUrl && (
+            <div className="absolute inset-0 flex items-center justify-center bg-green-900/10">
+              <motion.div
+                initial={{ scale: 0 }}
+                animate={{ scale: 1 }}
+                transition={{ type: "spring", stiffness: 300, damping: 25 }}
+                className="rounded-full bg-green-600 p-2 shadow-lg"
               >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  strokeWidth={2}
-                  d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"
-                />
-              </svg>
+                <CheckCircle2 className="h-6 w-6 text-white" />
+              </motion.div>
             </div>
-          </div>
-        )}
+          )}
 
-        {/* Play button overlay */}
-        {clip.thumbnailUrl && (
-          <div className="absolute inset-0 flex items-center justify-center opacity-0 transition-opacity duration-300 group-hover:opacity-100">
-            <div className="rounded-full bg-black/50 p-3 backdrop-blur-sm">
-              <svg
-                className="h-6 w-6 text-white"
-                fill="currentColor"
-                viewBox="0 0 24 24"
-              >
-                <path d="M8 5v14l11-7z" />
-              </svg>
+          {/* Play button overlay */}
+          {!clip.isCompleted && clip.thumbnailUrl && (
+            <div className="absolute inset-0 flex items-center justify-center opacity-0 transition-opacity duration-300 group-hover:opacity-100">
+              <div className="rounded-full bg-black/60 p-3 backdrop-blur-sm">
+                <Play className="h-6 w-6 text-white" fill="white" />
+              </div>
             </div>
+          )}
+
+          {/* Duration badge */}
+          <div className="absolute right-2 bottom-2">
+            <span className="rounded bg-black/60 px-2 py-0.5 text-xs font-medium text-white">
+              ~5 min
+            </span>
           </div>
-        )}
-      </div>
+        </div>
 
-      {/* Content */}
-      <div className="space-y-2">
-        <div className="flex items-start justify-between">
-          <h4
-            className={cn(
-              "font-medium transition-colors",
-              clip.isCompleted
-                ? "text-green-800"
-                : "text-gray-900 group-hover:text-blue-600",
-            )}
-          >
-            Chunk {index + 1}
-          </h4>
+        {/* Content - mobile optimized */}
+        <div className="space-y-2">
+          <div className="flex items-start justify-between gap-2">
+            <h4
+              className={cn(
+                "text-base font-semibold transition-colors sm:text-lg",
+                clip.isCompleted
+                  ? "text-green-700"
+                  : "text-gray-900 group-hover:text-blue-600",
+              )}
+            >
+              Chunk {index + 1}
+            </h4>
 
-          {/* Watch progress indicator */}
+            {/* Status icon */}
+            {clip.isCompleted ? (
+              <CheckCircle2 className="h-5 w-5 flex-shrink-0 text-green-500" />
+            ) : clip.watchTime > 0 ? (
+              <div className="flex items-center gap-1">
+                <Clock className="h-4 w-4 text-gray-400" />
+                <span className="text-xs text-gray-500">
+                  {Math.round(watchProgress)}%
+                </span>
+              </div>
+            ) : null}
+          </div>
+
+          {/* Watch progress bar */}
           {clip.watchTime > 0 && (
-            <div className="flex items-center space-x-1">
-              <div
-                className={cn(
-                  "h-2 w-8 overflow-hidden rounded-full bg-gray-200",
-                  clip.isCompleted && "bg-green-200",
-                )}
-              >
-                <div
+            <div className="w-full">
+              <div className="h-1.5 w-full overflow-hidden rounded-full bg-gray-200">
+                <motion.div
+                  initial={{ width: 0 }}
+                  animate={{ width: `${watchProgress}%` }}
+                  transition={{ duration: 0.5, ease: "easeOut" }}
                   className={cn(
-                    "h-full transition-all duration-300",
-                    clip.isCompleted
-                      ? "bg-green-500"
-                      : "bg-blue-500 group-hover:bg-blue-600",
+                    "h-full rounded-full",
+                    clip.isCompleted ? "bg-green-500" : "bg-blue-500",
                   )}
-                  style={{ width: `${watchProgress}%` }}
                 />
               </div>
-              <span className="text-xs text-gray-500">
-                {Math.round(watchProgress)}%
-              </span>
+              <p className="mt-1 text-xs text-gray-500">
+                Watch time: {formatWatchTime(clip.watchTime)}
+              </p>
             </div>
           )}
-        </div>
 
-        <p
-          className={cn(
-            "text-sm transition-colors",
-            clip.isCompleted ? "text-green-600" : "text-gray-500",
-          )}
-        >
-          ~5 minute segment
-        </p>
-
-        {/* Watch time info */}
-        <div className="flex items-center justify-between text-xs text-gray-400">
-          <span>Watch time: {formatWatchTime(clip.watchTime)}</span>
+          {/* Completion date */}
           {clip.completedAt && (
-            <span>Completed {clip.completedAt.toLocaleDateString()}</span>
+            <p className="text-xs text-green-600">
+              Completed {new Date(clip.completedAt).toLocaleDateString()}
+            </p>
           )}
+        </div>
+
+        {/* Action buttons - mobile optimized */}
+        <div className="relative z-20 mt-3 flex items-center justify-between gap-2">
+          <button
+            onClick={(e) => {
+              e.preventDefault();
+              router.push(`/dashboard/projects/${projectId}/clips/${clip.id}`);
+            }}
+            className={cn(
+              "flex items-center gap-1.5 text-sm font-medium transition-all duration-200",
+              clip.isCompleted
+                ? "text-green-600 hover:text-green-700"
+                : "text-blue-600 hover:text-blue-700",
+            )}
+          >
+            {clip.isCompleted ? (
+              <>
+                <RotateCw className="h-3.5 w-3.5" />
+                <span className="hidden sm:inline">Watch Again</span>
+                <span className="sm:hidden">Watch</span>
+              </>
+            ) : (
+              <>
+                <Play className="h-3.5 w-3.5" />
+                <span className="hidden sm:inline">Watch Chunk</span>
+                <span className="sm:hidden">Watch</span>
+              </>
+            )}
+            <ChevronRight className="h-3.5 w-3.5" />
+          </button>
+
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              e.preventDefault();
+              // TODO: Implement view notes functionality
+              console.log("View notes for chunk", clip.id);
+            }}
+            className={cn(
+              "flex items-center gap-1 text-xs transition-colors",
+              clip.isCompleted
+                ? "text-green-600 hover:text-green-700"
+                : "text-gray-500 hover:text-gray-700",
+            )}
+          >
+            <NotebookText className="h-3.5 w-3.5" />
+            <span className="hidden sm:inline">Notes</span>
+          </button>
         </div>
       </div>
 
-      {/* Action buttons */}
-      <div className="relative z-20 mt-4 flex items-center justify-between">
-        <span
-          className={cn(
-            "text-sm font-medium transition-all duration-200",
-            clip.isCompleted
-              ? "text-green-600 group-hover:text-green-800"
-              : "text-blue-600 group-hover:text-blue-800",
-          )}
-        >
-          {clip.isCompleted ? "Watch Again →" : "Watch Chunk →"}
-        </span>
-
-        <button
-          onClick={(e) => {
-            e.stopPropagation();
-            // TODO: Implement view notes functionality
-            console.log("View notes for chunk", clip.id);
-          }}
-          className={cn(
-            "text-sm transition-colors",
-            clip.isCompleted
-              ? "text-green-500 hover:text-green-700"
-              : "text-gray-500 hover:text-gray-700",
-          )}
-        >
-          View Notes
-        </button>
-      </div>
-
-      {/* Completion celebration effect */}
+      {/* Subtle animation for completed cards */}
       {clip.isCompleted && (
         <div className="pointer-events-none absolute inset-0">
-          <div className="absolute top-2 right-8 h-1 w-1 animate-ping rounded-full bg-yellow-400 delay-300" />
-          <div className="absolute bottom-2 left-4 h-0.5 w-0.5 animate-ping rounded-full bg-yellow-300 delay-500" />
+          <div className="absolute top-2 right-8 h-1 w-1 animate-ping rounded-full bg-green-400 delay-300" />
+          <div className="absolute bottom-2 left-4 h-0.5 w-0.5 animate-ping rounded-full bg-green-300 delay-500" />
         </div>
       )}
-    </div>
+    </motion.div>
   );
 }

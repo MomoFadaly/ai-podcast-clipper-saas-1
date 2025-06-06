@@ -12,7 +12,7 @@ import type { ProjectWithStats, ClipWithDetails } from "~/actions/projects";
 export const queryKeys = {
   projects: ["projects"] as const,
   project: (id: string) => ["projects", id] as const,
-  clips: (projectId: string, options?: any) =>
+  clips: (projectId: string, options?: Record<string, unknown>) =>
     ["clips", projectId, options] as const,
 };
 

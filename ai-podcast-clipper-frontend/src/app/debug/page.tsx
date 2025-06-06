@@ -42,7 +42,7 @@ export default function DebugPage() {
               <DropdownMenuLabel>
                 <div className="flex flex-col space-y-1">
                   <p className="text-sm font-medium text-gray-900">
-                    {session?.user?.name || "User"}
+                    {session?.user?.name ?? "User"}
                   </p>
                   <p className="text-xs text-gray-500">
                     {session?.user?.email}

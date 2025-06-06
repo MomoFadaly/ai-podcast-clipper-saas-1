@@ -1,5 +1,12 @@
 tqdm
-torch
+# Use latest torch for Python 3.12 compatibility
+# pyannote.audio and pytorch-lightning remain pinned for model compatibility
+# CUDA 11.x is still fine for Modal image
+# torch>=2.2.0 for Python 3.12 support
+torch>=2.2.0
+torchaudio>=2.2.0
+# pyannote.audio # Attempting removal - for speaker diarization, likely not used
+# lightning>=2.2.0 # Attempting removal - dependency of pyannote.audio
 numpy
 scipy
 gdown
@@ -8,8 +15,24 @@ transformers
 accelerate
 datasets
 boto3
-fastapi[standard]
-whisperx
+fastapi
+uvicorn
+python-dotenv
+modal
+# whisperx @ git+https://github.com/m-bain/whisperX.git
 yt-dlp
-youtube-search-python==1.6.6
-psycopg2-binary
+# pyannote.audio>=3.3.2
+torchvision>=0.17.0
+--extra-index-url https://download.pytorch.org/whl/cu118
+pydantic
+requests
+ffmpeg-python
+soundfile
+librosa
+loguru
+more-itertools
+pytube
+setuptools-rust
+openai
+# openai-whisper
+resampy

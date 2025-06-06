@@ -1,9 +1,35 @@
 import { type NextRequest, NextResponse } from "next/server";
+import { db } from "~/server/db";
+import { auth } from "~/server/auth";
+import { randomUUID } from "crypto";
+import { inngest } from "~/inngest/client";
 
 export async function POST(request: NextRequest) {
   try {
-    const body = await request.json();
-    const { youtube_url, chunk_config } = body;
+    const session = await auth();
+    if (!session?.user?.id) {
+      return NextResponse.json(
+        { success: false, message: "Unauthorized" },
+        { status: 401 },
+      );
+    }
+
+    const body = (await request.json()) as unknown;
+    if (typeof body !== "object" || body === null) {
+      return NextResponse.json(
+        { success: false, message: "Invalid request body" },
+        { status: 400 },
+      );
+    }
+
+    const { youtube_url, chunk_config } = body as {
+      youtube_url: string;
+      chunk_config?: {
+        method: string;
+        minutesPerChunk?: number;
+        totalChunks?: number;
+      };
+    };
 
     if (!youtube_url) {
       return NextResponse.json(
@@ -22,62 +48,52 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Call the Modal endpoint for processing
-    const processEndpoint = process.env.NEXT_PUBLIC_YOUTUBE_PROCESS_ENDPOINT;
-    const authToken = process.env.PROCESS_VIDEO_ENDPOINT_AUTH;
+    console.log(`🚀 Processing YouTube video: ${youtube_url}`);
+    console.log(`📋 Chunk config:`, chunk_config);
 
-    if (!processEndpoint) {
-      return NextResponse.json(
-        {
-          success: false,
-          message: "YouTube processing endpoint not configured",
-        },
-        { status: 500 },
-      );
-    }
-
-    console.log(`Processing video: ${youtube_url}`);
-    console.log(`Using endpoint: ${processEndpoint}`);
-    console.log(`Chunk config:`, chunk_config);
-
-    const response = await fetch(processEndpoint, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${authToken ?? "12341234"}`,
+    // Create a project record first for the YouTube video
+    const projectId = randomUUID();
+    const project = await db.uploadedFile.create({
+      data: {
+        id: projectId,
+        s3Key: `youtube_videos/${projectId}/placeholder.mp4`, // Will be updated by processor
+        displayName: `YouTube Video ${new Date().toISOString()}`, // Will be updated with actual title
+        uploaded: true,
+        status: "queued",
+        userId: session.user.id,
+        updatedAt: new Date(),
       },
-      body: JSON.stringify({
-        youtube_url: youtube_url,
-        chunk_config: chunk_config ?? {
+    });
+
+    // Use the new chunkwise processing system via Inngest
+    console.log(`📤 Triggering chunkwise processing for project: ${projectId}`);
+    await inngest.send({
+      name: "chunkwise.process-video",
+      data: {
+        videoId: projectId,
+        userId: session.user.id,
+        youtubeUrl: youtube_url,
+        chunkConfig: chunk_config ?? {
           method: "minutes",
           minutesPerChunk: 5,
           totalChunks: 1,
         },
-      }),
+      },
     });
 
-    if (!response.ok) {
-      console.error(
-        `Modal processing endpoint error: ${response.status} ${response.statusText}`,
-      );
-      const errorText = await response.text();
-      console.error("Error response:", errorText);
+    console.log(`✅ YouTube processing initiated for project: ${projectId}`);
 
-      return NextResponse.json(
-        {
-          success: false,
-          message: `Failed to process video: ${response.status}`,
-        },
-        { status: response.status },
-      );
-    }
-
-    const result = await response.json();
-    console.log("Processing result:", result);
-
-    return NextResponse.json(result);
+    return NextResponse.json({
+      success: true,
+      project: {
+        id: project.id,
+        status: project.status,
+        displayName: project.displayName,
+      },
+      message: "YouTube video processing started",
+    });
   } catch (error) {
-    console.error("Error in youtube-process API route:", error);
+    console.error("❌ Error in youtube-process API route:", error);
     return NextResponse.json(
       { success: false, message: "Internal server error" },
       { status: 500 },

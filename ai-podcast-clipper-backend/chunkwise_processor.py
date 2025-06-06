@@ -7,20 +7,23 @@ import uuid
 import boto3
 import modal
 import os
-from fastapi import Depends, HTTPException, status
+import requests
+from fastapi import Depends, HTTPException, status, Request, Response
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
-from pydantic import BaseModel
-import whisperx
+import openai
 import yt_dlp
 
 # Modal image setup with required dependencies
-image = (modal.Image.from_registry(
-    "nvidia/cuda:12.4.0-devel-ubuntu22.04", add_python="3.12")
-    .apt_install(["ffmpeg", "libgl1-mesa-glx", "wget"])
+image = (
+    modal.Image.from_registry("nvidia/cuda:11.3.1-cudnn8-devel-ubuntu20.04", add_python="3.12")
+    .env({"DEBIAN_FRONTEND": "noninteractive", "TZ": "Etc/UTC"})
+    .apt_install(["ffmpeg", "libgl1-mesa-glx", "wget", "git"])
     .pip_install_from_requirements("requirements.txt")
 )
 
 # Modal app setup
+volume = modal.Volume.from_name("ai-podcast-clipper-model-cache", create_if_missing=True)
+mount_path = "/root/.cache/torch"
 app = modal.App("chunkwise-processor", image=image)
 
 # Constants
@@ -29,11 +32,6 @@ S3_BUCKET_NAME = "ai-podcast-clipper"  # Reusing existing bucket
 
 # Authentication
 auth_scheme = HTTPBearer()
-
-class ProcessYouTubeVideoRequest(BaseModel):
-    youtube_url: str
-    video_id: str  # UUID from database
-    chunk_config: dict = {"method": "minutes", "minutesPerChunk": 10, "totalChunks": 1}  # Default config
 
 def generate_chunkwise_s3_key(path: str) -> str:
     """Generate S3 key with chunkwise prefix"""
@@ -62,111 +60,6 @@ def download_youtube_video(youtube_url: str, output_path: str) -> dict:
             'youtube_id': info.get('id', ''),
         }
 
-def create_video_chunks(video_path: str, chunk_config: dict, output_dir: str) -> list:
-    """Split video into chunks based on chunk_config (minutes or total chunks) using ffmpeg"""
-    # Get video duration first
-    probe_cmd = f"ffprobe -v quiet -show_entries format=duration -of csv=p=0 {video_path}"
-    result = subprocess.run(probe_cmd, shell=True, capture_output=True, text=True)
-    total_duration = float(result.stdout.strip())
-
-    method = chunk_config.get("method", "minutes")
-    minutes_per_chunk = float(chunk_config.get("minutesPerChunk", 10))
-    total_chunks = int(chunk_config.get("totalChunks", 1))
-
-    # Calculate chunk boundaries
-    chunk_boundaries = []
-    if method == "chunks":
-        # Split into N chunks
-        chunk_duration = total_duration / total_chunks
-        for i in range(total_chunks):
-            start_time = i * chunk_duration
-            end_time = min((i + 1) * chunk_duration, total_duration)
-            if end_time - start_time >= 30:  # Minimum 30s
-                chunk_boundaries.append((start_time, end_time))
-    else:
-        # Split by minutes per chunk
-        chunk_duration = minutes_per_chunk * 60
-        start_time = 0
-        while start_time < total_duration:
-            end_time = min(start_time + chunk_duration, total_duration)
-            if end_time - start_time >= 30:  # Minimum 30s
-                chunk_boundaries.append((start_time, end_time))
-            start_time = end_time
-
-    # Actually create the chunks
-    chunks_created = []
-    for idx, (start_time, end_time) in enumerate(chunk_boundaries, 1):
-        chunk_filename = f"chunk-{idx}.mp4"
-        chunk_path = os.path.join(output_dir, chunk_filename)
-        duration = end_time - start_time
-        ffmpeg_cmd = (
-            f"ffmpeg -i {video_path} "
-            f"-ss {start_time} -t {duration} "
-            f"-c copy -avoid_negative_ts make_zero "
-            f"{chunk_path}"
-        )
-        subprocess.run(ffmpeg_cmd, shell=True, check=True, capture_output=True)
-        chunks_created.append({
-            'chunk_number': idx,
-            'filename': chunk_filename,
-            'path': chunk_path,
-            'start_time': start_time,
-            'end_time': end_time,
-            'duration': duration
-        })
-    return chunks_created
-
-def transcribe_video_chunk(video_path: str, whisperx_model, alignment_model, metadata) -> list:
-    """Transcribe a video chunk using WhisperX"""
-    # Extract audio from video
-    audio_path = video_path.replace('.mp4', '_audio.wav')
-    extract_cmd = f"ffmpeg -i {video_path} -vn -acodec pcm_s16le -ar 16000 -ac 1 {audio_path}"
-    subprocess.run(extract_cmd, shell=True, check=True, capture_output=True)
-    
-    try:
-        # Transcribe using WhisperX
-        audio = whisperx.load_audio(audio_path)
-        result = whisperx_model.transcribe(audio, batch_size=16)
-        
-        # Align transcript
-        result = whisperx.align(
-            result["segments"],
-            alignment_model,
-            metadata,
-            audio,
-            device="cuda",
-            return_char_alignments=False
-        )
-        
-        # Convert to word-level segments
-        segments = []
-        if "word_segments" in result:
-            for word_segment in result["word_segments"]:
-                segments.append({
-                    "start": word_segment["start"],
-                    "end": word_segment["end"],
-                    "word": word_segment["word"],
-                })
-        
-        return segments
-    
-    finally:
-        # Clean up audio file
-        if os.path.exists(audio_path):
-            os.remove(audio_path)
-
-def upload_chunk_to_s3(chunk_info: dict, video_id: str, s3_client) -> str:
-    """Upload video chunk to S3 with chunkwise prefix"""
-    s3_key = generate_chunkwise_s3_key(f"videos/{video_id}/chunks/{chunk_info['filename']}")
-    
-    s3_client.upload_file(
-        chunk_info['path'],
-        S3_BUCKET_NAME,
-        s3_key
-    )
-    
-    return s3_key
-
 def upload_original_video_to_s3(video_path: str, video_id: str, s3_client) -> str:
     """Upload original video to S3 with chunkwise prefix"""
     s3_key = generate_chunkwise_s3_key(f"videos/{video_id}/original.mp4")
@@ -180,91 +73,89 @@ def upload_original_video_to_s3(video_path: str, video_id: str, s3_client) -> st
     return s3_key
 
 @app.cls(
-    gpu="T4",  # Lighter GPU since we're not doing AI processing
+    gpu="T4",
     timeout=1800,  # 30 minutes
     retries=1,
-    secrets=[modal.Secret.from_name("ai-podcast-clipper-secret")]
+    secrets=[
+        modal.Secret.from_name("ai-podcast-clipper-secret"),
+    ],
+    volumes={mount_path: volume}
 )
 class ChunkwiseProcessor:
     @modal.enter()
     def load_models(self):
-        """Load WhisperX models for transcription"""
-        print("Loading WhisperX models...")
-        
-        self.whisperx_model = whisperx.load_model(
-            "large-v2", 
-            device="cuda", 
-            compute_type="float16"
-        )
-        
-        self.alignment_model, self.metadata = whisperx.load_align_model(
-            language_code="en",
-            device="cuda"
-        )
-        
-        print("Models loaded successfully")
+        """Load transcription models and initialize clients."""
+        print("🚀 Initializing OpenAI client...")
+        self.openai_client = openai.OpenAI()
+        print("✅ OpenAI client initialized.")
 
-    @modal.method()
+    def _transcribe_audio(self, audio_path: str) -> list:
+        """Transcribes audio using OpenAI Whisper API and returns word-level segments."""
+        print(f"Transcribing audio file: {audio_path}")
+        with open(audio_path, "rb") as audio_file:
+            transcript = self.openai_client.audio.transcriptions.create(
+                model="whisper-1",
+                file=audio_file,
+                response_format="verbose_json",
+                timestamp_granularities=["word"]
+            )
+        
+        all_segments = []
+        if transcript.words:
+            for word_segment in transcript.words:
+                all_segments.append({
+                    "start": word_segment.start,
+                    "end": word_segment.end,
+                    "word": word_segment.word,
+                })
+        print(f"✅ Transcription complete. Found {len(all_segments)} word segments.")
+        return all_segments
+
     def process_youtube_video(self, request_data: dict) -> dict:
         """Main processing method for YouTube videos"""
         youtube_url = request_data["youtube_url"]
         video_id = request_data["video_id"]
-        # Accept chunk_config dict, fallback to old param for backward compatibility
-        chunk_config = request_data.get("chunk_config")
-        if not chunk_config:
-            # Fallback for old clients
-            chunk_duration_minutes = request_data.get("chunk_duration_minutes", 10)
-            chunk_config = {"method": "minutes", "minutesPerChunk": chunk_duration_minutes, "totalChunks": 1}
+        chunks = request_data.get("chunks", [])
+
+        if not chunks:
+            return {'success': False, 'error': 'Chunks are required for YouTube processing.'}
 
         print(f"Processing YouTube video: {youtube_url}")
         print(f"Video ID: {video_id}")
-        print(f"Chunk config: {chunk_config}")
+        print(f"Received {len(chunks)} chunks.")
 
-        # Create temporary directory
         run_id = str(uuid.uuid4())
         base_dir = pathlib.Path("/tmp") / run_id
         base_dir.mkdir(parents=True, exist_ok=True)
 
         try:
-            # 1. Download YouTube video
             print("Downloading YouTube video...")
             video_path = base_dir / "original.mp4"
             video_info = download_youtube_video(youtube_url, str(video_path))
 
-            # 2. Upload original video to S3
             print("Uploading original video to S3...")
             s3_client = boto3.client("s3")
             original_s3_key = upload_original_video_to_s3(str(video_path), video_id, s3_client)
 
-            # 3. Create chunks
-            print(f"Creating chunks with config: {chunk_config}")
-            chunks_dir = base_dir / "chunks"
-            chunks_dir.mkdir(exist_ok=True)
-
-            chunks = create_video_chunks(
-                str(video_path),
-                chunk_config,
-                str(chunks_dir)
-            )
-
-            # 4. Process each chunk
+            print("Transcribing the entire video once...")
+            audio_path = str(base_dir / "full_audio.wav")
+            extract_cmd = f"ffmpeg -i {video_path} -vn -acodec pcm_s16le -ar 16000 -ac 1 {audio_path}"
+            subprocess.run(extract_cmd, shell=True, check=True, capture_output=True)
+            
+            all_segments = []
+            try:
+                all_segments = self._transcribe_audio(audio_path)
+            finally:
+                if os.path.exists(audio_path):
+                    os.remove(audio_path)
+            
             processed_chunks = []
-            for chunk in chunks:
-                print(f"Processing chunk {chunk['chunk_number']}...")
-                transcript = transcribe_video_chunk(
-                    chunk['path'],
-                    self.whisperx_model,
-                    self.alignment_model,
-                    self.metadata
-                )
-                chunk_s3_key = upload_chunk_to_s3(chunk, video_id, s3_client)
+            for idx, chunk in enumerate(chunks, 1):
                 processed_chunks.append({
-                    'chunk_number': chunk['chunk_number'],
-                    'start_time_seconds': int(chunk['start_time']),
-                    'end_time_seconds': int(chunk['end_time']),
-                    'duration_seconds': int(chunk['duration']),
-                    's3_key': chunk_s3_key,
-                    'transcript': transcript,
+                    'chunk_number': idx,
+                    'start_time_seconds': int(chunk['start']),
+                    'end_time_seconds': int(chunk['end']),
+                    'duration_seconds': int(chunk['end'] - chunk['start']),
                 })
 
             return {
@@ -272,42 +163,264 @@ class ChunkwiseProcessor:
                 'video_info': video_info,
                 'original_s3_key': original_s3_key,
                 'chunks': processed_chunks,
+                'transcript': all_segments,
                 'total_chunks': len(processed_chunks),
             }
         except Exception as e:
             print(f"Error processing video: {str(e)}")
-            return {
-                'success': False,
-                'error': str(e),
+            return {'success': False, 'error': str(e)}
+        finally:
+            if base_dir.exists():
+                print(f"Cleaning up temp dir: {base_dir}")
+                shutil.rmtree(base_dir, ignore_errors=True)
+
+    def process_s3_video(self, request_data: dict) -> dict:
+        """Process existing S3 video with new chunk configuration (for re-chunking)"""
+        video_id = request_data["video_id"]
+        s3_key = request_data["s3_key"]
+        chunks = request_data.get("chunks", [])
+        existing_transcript = request_data.get("existing_transcript", [])
+        
+        if not chunks:
+            return {'success': False, 'error': 'Chunks are required for S3 processing.'}
+
+        print(f"Processing S3 video: {s3_key}")
+        print(f"Video ID: {video_id}")
+        print(f"Received {len(chunks)} chunks.")
+        print(f"Using existing transcript: {len(existing_transcript) > 0}")
+
+        run_id = str(uuid.uuid4())
+        base_dir = pathlib.Path("/tmp") / run_id
+        base_dir.mkdir(parents=True, exist_ok=True)
+
+        try:
+            total_duration = None
+            all_segments = existing_transcript
+            
+            if not all_segments:
+                print("No existing transcript. Downloading video to transcribe and get duration...")
+                video_path = base_dir / "original.mp4"
+                s3_client = boto3.client("s3")
+                s3_client.download_file(S3_BUCKET_NAME, s3_key, str(video_path))
+                
+                probe_cmd = f"ffprobe -v quiet -show_entries format=duration -of csv=p=0 {video_path}"
+                result = subprocess.run(probe_cmd, shell=True, capture_output=True, text=True)
+                total_duration = float(result.stdout.strip())
+                print(f"Extracted duration from video: {total_duration} seconds")
+
+                print("Extracting audio for transcription...")
+                audio_path = str(base_dir / "full_audio.wav")
+                extract_cmd = f"ffmpeg -i {video_path} -vn -acodec pcm_s16le -ar 16000 -ac 1 {audio_path}"
+                subprocess.run(extract_cmd, shell=True, check=True, capture_output=True)
+                
+                try:
+                    all_segments = self._transcribe_audio(audio_path)
+                finally:
+                    if os.path.exists(audio_path):
+                        os.remove(audio_path)
+            else:
+                try:
+                    last_segment = max(existing_transcript, key=lambda x: x.get('end', 0))
+                    total_duration = last_segment.get('end', 0)
+                    print(f"Estimated duration from transcript: {total_duration} seconds")
+                except (KeyError, ValueError, TypeError):
+                    # Fallback to getting duration from ffprobe if transcript is malformed
+                    print("Could not estimate duration from transcript, will need to download video.")
+                    video_path = base_dir / "original.mp4"
+                    s3_client = boto3.client("s3")
+                    s3_client.download_file(S3_BUCKET_NAME, s3_key, str(video_path))
+                    probe_cmd = f"ffprobe -v quiet -show_entries format=duration -of csv=p=0 {video_path}"
+                    result = subprocess.run(probe_cmd, shell=True, capture_output=True, text=True)
+                    total_duration = float(result.stdout.strip())
+                    print(f"Extracted duration from video: {total_duration} seconds")
+            
+            video_info = {
+                'duration': total_duration,
+                'title': f'Processed Video {video_id}',
+                'thumbnail': '',
+                'youtube_id': '',
             }
+
+            processed_chunks = []
+            for idx, chunk in enumerate(chunks, 1):
+                processed_chunks.append({
+                    'chunk_number': idx,
+                    'start_time_seconds': int(chunk['start']),
+                    'end_time_seconds': int(chunk['end']),
+                    'duration_seconds': int(chunk['end'] - chunk['start']),
+                })
+
+            return {
+                'success': True,
+                'video_info': video_info,
+                'original_s3_key': s3_key,
+                'chunks': processed_chunks,
+                'transcript': all_segments,
+                'total_chunks': len(processed_chunks),
+                're_chunked': bool(existing_transcript),
+            }
+        except Exception as e:
+            print(f"Error processing S3 video: {str(e)}")
+            return {'success': False, 'error': str(e)}
         finally:
             if base_dir.exists():
                 print(f"Cleaning up temp dir: {base_dir}")
                 shutil.rmtree(base_dir, ignore_errors=True)
 
     @modal.fastapi_endpoint(method="POST")
-    def process_video_endpoint(
+    async def process_video_endpoint(
         self,
-        request: ProcessYouTubeVideoRequest,
+        request: Request,
         token: HTTPAuthorizationCredentials = Depends(auth_scheme)
     ):
-        """FastAPI endpoint for processing YouTube videos"""
+        """FastAPI endpoint for processing both YouTube and file-upload jobs"""
         if token.credentials != os.environ["AUTH_TOKEN"]:
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Incorrect bearer token",
                 headers={"WWW-Authenticate": "Bearer"}
             )
-        # Accept chunk_config from request, fallback for old clients
-        chunk_config = getattr(request, "chunk_config", None)
-        if not chunk_config:
-            chunk_config = {"method": "minutes", "minutesPerChunk": getattr(request, "chunk_duration_minutes", 10), "totalChunks": 1}
-        result = self.process_youtube_video({
-            "youtube_url": request.youtube_url,
-            "video_id": request.video_id,
-            "chunk_config": chunk_config,
-        })
-        return result
+        data = await request.json()
+        print(f"✅ Received request data: {json.dumps(data)}")
+        
+        if "youtube_url" in data:
+            return self.process_youtube_video(data)
+        elif "s3_key" in data:
+            return self.process_s3_video(data)
+        else:
+            raise HTTPException(status_code=422, detail="Invalid payload: must include either youtube_url or s3_key")
+
+    @modal.fastapi_endpoint(method="POST")
+    async def generate_thumbnail(
+        self,
+        request: Request,
+        token: HTTPAuthorizationCredentials = Depends(auth_scheme)
+    ):
+        """Generate a thumbnail from a video at a specific time offset"""
+        if token.credentials != os.environ["AUTH_TOKEN"]:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Incorrect bearer token",
+                headers={"WWW-Authenticate": "Bearer"}
+            )
+        
+        data = await request.json()
+        
+        try:
+            video_url = data.get("video_url")
+            time_offset = data.get("time_offset", 5)
+            width = data.get("width", 480)
+            height = data.get("height", 270)
+            output_format = data.get("output_format", "jpeg")
+            
+            if not video_url:
+                raise HTTPException(status_code=400, detail="video_url is required")
+            
+            # Create temporary directory
+            base_dir = pathlib.Path("/tmp") / f"thumbnail_{uuid.uuid4()}"
+            base_dir.mkdir(parents=True, exist_ok=True)
+            
+            try:
+                # Download video to temp location if it's a URL
+                if video_url.startswith("http"):
+                    video_path = base_dir / "video_temp.mp4"
+                    print(f"Downloading video from: {video_url}")
+                    
+                    # Use requests to download video
+                    response = requests.get(video_url, stream=True)
+                    response.raise_for_status()
+                    
+                    with open(video_path, 'wb') as f:
+                        for chunk in response.iter_content(chunk_size=8192):
+                            f.write(chunk)
+                    
+                    print(f"Video downloaded successfully to: {video_path}")
+                else:
+                    video_path = pathlib.Path(video_url)
+                
+                # First, get video duration to ensure time_offset is valid
+                duration_cmd = [
+                    "ffprobe", "-v", "quiet", "-show_entries", "format=duration",
+                    "-of", "csv=p=0", str(video_path)
+                ]
+                
+                duration_result = subprocess.run(duration_cmd, capture_output=True, text=True)
+                if duration_result.returncode == 0:
+                    try:
+                        video_duration = float(duration_result.stdout.strip())
+                        print(f"Video duration: {video_duration} seconds")
+                        
+                        # Adjust time_offset if it exceeds video duration
+                        if time_offset >= video_duration:
+                            # Use 10% of video duration or 1 second, whichever is smaller
+                            time_offset = min(video_duration * 0.1, 1.0)
+                            print(f"Adjusted time_offset to {time_offset} seconds (video too short)")
+                        
+                        # Ensure minimum offset of 0
+                        time_offset = max(0, time_offset)
+                        
+                    except (ValueError, TypeError):
+                        print("Could not parse video duration, using default offset")
+                        time_offset = 1.0  # Fallback to 1 second
+                else:
+                    print("Could not determine video duration, using safe fallback")
+                    time_offset = 1.0  # Fallback to 1 second
+                
+                # Generate thumbnail using ffmpeg
+                thumbnail_path = base_dir / f"thumbnail.{output_format}"
+                ffmpeg_cmd = [
+                    "ffmpeg", "-i", str(video_path),
+                    "-ss", str(time_offset),
+                    "-vframes", "1",
+                    "-vf", f"scale={width}:{height}:force_original_aspect_ratio=decrease,pad={width}:{height}:(ow-iw)/2:(oh-ih)/2",
+                    "-q:v", "2",  # High quality
+                    "-y",  # Overwrite output
+                    str(thumbnail_path)
+                ]
+                
+                print(f"Running ffmpeg command with time_offset={time_offset}")
+                result = subprocess.run(ffmpeg_cmd, capture_output=True, text=True)
+                
+                if result.returncode != 0:
+                    print(f"FFmpeg error: {result.stderr}")
+                    # Try with time_offset=0 as final fallback
+                    print("Retrying with time_offset=0")
+                    ffmpeg_cmd[4] = "0"  # Set -ss to 0
+                    result = subprocess.run(ffmpeg_cmd, capture_output=True, text=True)
+                    
+                    if result.returncode != 0:
+                        print(f"FFmpeg retry failed: {result.stderr}")
+                        raise HTTPException(status_code=500, detail=f"Thumbnail generation failed: {result.stderr}")
+                
+                # Verify thumbnail file was created
+                if not thumbnail_path.exists():
+                    raise HTTPException(status_code=500, detail="Thumbnail file was not generated")
+                
+                # Read thumbnail file and return as bytes
+                with open(thumbnail_path, "rb") as f:
+                    thumbnail_data = f.read()
+                
+                print(f"Thumbnail generated successfully: {len(thumbnail_data)} bytes")
+                
+                return Response(
+                    content=thumbnail_data,
+                    media_type=f"image/{output_format}",
+                    headers={
+                        "Content-Disposition": f"inline; filename=thumbnail.{output_format}",
+                        "Cache-Control": "public, max-age=3600"
+                    }
+                )
+                
+            finally:
+                # Cleanup temp directory
+                if base_dir.exists():
+                    shutil.rmtree(base_dir, ignore_errors=True)
+                
+        except HTTPException:
+            raise
+        except Exception as e:
+            print(f"Error generating thumbnail: {e}")
+            raise HTTPException(status_code=500, detail=f"Thumbnail generation failed: {str(e)}")
 
 @app.local_entrypoint()
 def main():
@@ -321,4 +434,6 @@ def main():
         "chunk_duration_minutes": 1,  # 1 minute chunks for testing
     })
     
-    print("Test result:", json.dumps(test_result, indent=2)) 
+    print("Test result:", json.dumps(test_result, indent=2))
+
+# Ensure Modal exposes endpoints for deployment 

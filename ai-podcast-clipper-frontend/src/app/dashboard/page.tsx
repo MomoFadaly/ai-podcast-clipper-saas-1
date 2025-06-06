@@ -38,7 +38,7 @@ export default function DashboardPage() {
       }
     };
 
-    fetchData();
+    void fetchData();
   }, []);
 
   const getStatusBadge = (status: string, progressPercentage: number) => {
@@ -304,10 +304,10 @@ export default function DashboardPage() {
         <div className="p-6">
           {isLoading ? (
             <div className="space-y-4">
-              {[...Array(3)].map((_, i) => (
+              {Array.from({ length: 3 }).map((_, i) => (
                 <div
                   key={i}
-                  className="animate-pulse rounded-lg border border-gray-200 p-4"
+                  className="animate-pulse overflow-hidden rounded-lg border border-gray-200 bg-white"
                 >
                   <div className="flex items-center justify-between">
                     <div className="flex-1">

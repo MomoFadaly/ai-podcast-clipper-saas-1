@@ -1,0 +1,6 @@
+{
+  "dependencies": {
+    "@videojs-player/react": "^1.0.0",
+    "video.js": "^8.23.3"
+  }
+}

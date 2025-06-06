@@ -21,9 +21,6 @@ export const env = createEnv({
     S3_BUCKET_NAME: z.string(),
     PROCESS_VIDEO_ENDPOINT: z.string(),
     PROCESS_VIDEO_ENDPOINT_AUTH: z.string(),
-    // Chunkwise-specific endpoints
-    CHUNKWISE_PROCESS_VIDEO_ENDPOINT: z.string().optional(),
-    CHUNKWISE_PROCESS_VIDEO_ENDPOINT_AUTH: z.string().optional(),
     THUMBNAIL_GENERATION_ENDPOINT: z.string().optional(),
     STRIPE_SECRET_KEY: z.string(),
     STRIPE_SMALL_CREDIT_PACK: z.string(),
@@ -33,6 +30,7 @@ export const env = createEnv({
     STRIPE_WEBHOOK_SECRET: z.string(),
     // Supabase server-side key
     SUPABASE_SERVICE_ROLE_KEY: z.string().optional(),
+    CHUNKWISE_S3_PREFIX: z.string().optional(),
   },
 
   /**
@@ -64,11 +62,6 @@ export const env = createEnv({
     S3_BUCKET_NAME: process.env.S3_BUCKET_NAME,
     PROCESS_VIDEO_ENDPOINT: process.env.PROCESS_VIDEO_ENDPOINT,
     PROCESS_VIDEO_ENDPOINT_AUTH: process.env.PROCESS_VIDEO_ENDPOINT_AUTH,
-    // Chunkwise endpoints
-    CHUNKWISE_PROCESS_VIDEO_ENDPOINT:
-      process.env.CHUNKWISE_PROCESS_VIDEO_ENDPOINT,
-    CHUNKWISE_PROCESS_VIDEO_ENDPOINT_AUTH:
-      process.env.CHUNKWISE_PROCESS_VIDEO_ENDPOINT_AUTH,
     THUMBNAIL_GENERATION_ENDPOINT: process.env.THUMBNAIL_GENERATION_ENDPOINT,
     NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY:
       process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY,
@@ -83,6 +76,7 @@ export const env = createEnv({
     NEXT_PUBLIC_SUPABASE_URL: process.env.NEXT_PUBLIC_SUPABASE_URL,
     NEXT_PUBLIC_SUPABASE_ANON_KEY: process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY,
     SUPABASE_SERVICE_ROLE_KEY: process.env.SUPABASE_SERVICE_ROLE_KEY,
+    CHUNKWISE_S3_PREFIX: process.env.CHUNKWISE_S3_PREFIX,
   },
   /**
    * Run `build` or `dev` with `SKIP_ENV_VALIDATION` to skip env validation. This is especially

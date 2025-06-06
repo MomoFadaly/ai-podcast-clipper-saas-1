@@ -36,7 +36,7 @@ export function CompletionCelebration({
       <div className="relative mx-4 max-w-md transform animate-bounce rounded-2xl bg-white p-8 text-center shadow-2xl">
         {/* Confetti effect */}
         <div className="absolute inset-0 overflow-hidden rounded-2xl">
-          {[...Array(12)].map((_, i) => (
+          {Array.from({ length: 12 }).map((_, i: number) => (
             <div
               key={i}
               className={cn(
@@ -71,7 +71,8 @@ export function CompletionCelebration({
           🎉 Project Complete! 🎉
         </h2>
         <p className="mb-4 text-gray-600">
-          Congratulations! You've completed all chunks in this learning project.
+          Congratulations! You&apos;ve completed all chunks in this learning
+          project.
         </p>
 
         {/* Achievement badge */}
@@ -85,7 +86,7 @@ export function CompletionCelebration({
 
       {/* Floating elements */}
       <div className="pointer-events-none absolute inset-0">
-        {[...Array(6)].map((_, i) => (
+        {Array.from({ length: 6 }).map((_, i: number) => (
           <div
             key={i}
             className="absolute animate-bounce"
@@ -97,7 +98,7 @@ export function CompletionCelebration({
             }}
           >
             <span className="text-2xl">
-              {["🎉", "✨", "🏆", "🎊", "⭐", "🚀"][i]}
+              {(["🎉", "✨", "🏆", "🎊", "⭐", "🚀"] as string[])[i]}
             </span>
           </div>
         ))}

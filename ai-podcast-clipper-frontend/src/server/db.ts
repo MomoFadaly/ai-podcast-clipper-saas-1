@@ -29,9 +29,7 @@ let db: PrismaClient;
 if (env.NODE_ENV === "production") {
   db = createPrismaClient();
 } else {
-  if (!global.cachedPrisma) {
-    global.cachedPrisma = createPrismaClient();
-  }
+  global.cachedPrisma ??= createPrismaClient();
   db = global.cachedPrisma;
 }
 

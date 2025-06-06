@@ -60,7 +60,7 @@ export default function ProjectsPage() {
       const success = await deleteProject(projectId);
       if (success) {
         // Refetch projects after successful deletion
-        refetch();
+        void refetch();
       } else {
         alert("Failed to delete project. Please try again.");
       }
@@ -132,7 +132,7 @@ export default function ProjectsPage() {
           </p>
           <div className="mt-4 space-x-4">
             <button
-              onClick={() => refetch()}
+              onClick={() => void refetch()}
               className="rounded-lg bg-red-600 px-4 py-2 text-white hover:bg-red-700"
             >
               Retry
@@ -219,7 +219,7 @@ export default function ProjectsPage() {
       {/* Projects Grid */}
       {isLoading ? (
         <div className="grid grid-cols-1 gap-6 md:grid-cols-2 lg:grid-cols-3">
-          {[...Array(6)].map((_, i) => (
+          {Array.from({ length: 6 }).map((_, i) => (
             <div
               key={i}
               className="animate-pulse overflow-hidden rounded-lg border border-gray-200 bg-white"
@@ -312,7 +312,7 @@ export default function ProjectsPage() {
                 <div className="relative aspect-video bg-gray-100">
                   <ThumbnailImage
                     thumbnailUrl={project.thumbnailUrl}
-                    alt={project.displayName || "Project thumbnail"}
+                    alt={project.displayName ?? "Project thumbnail"}
                     className="h-full w-full object-cover transition-transform duration-200 group-hover:scale-105"
                     fallback={
                       <div className="flex h-full w-full items-center justify-center bg-gradient-to-br from-gray-100 to-gray-200">
@@ -411,7 +411,7 @@ export default function ProjectsPage() {
                       <button
                         onClick={(e) => {
                           e.stopPropagation();
-                          handleDeleteProject(project.id);
+                          void handleDeleteProject(project.id);
                         }}
                         disabled={deletingProject === project.id}
                         className="p-1 text-gray-400 transition-colors hover:text-red-600 disabled:opacity-50"

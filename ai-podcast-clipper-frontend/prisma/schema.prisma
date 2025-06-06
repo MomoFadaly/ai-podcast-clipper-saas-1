@@ -3,8 +3,9 @@ generator client {
 }
 
 datasource db {
-  provider = "postgresql"
-  url      = env("DATABASE_URL")
+  provider          = "postgresql"
+  url               = env("DATABASE_URL")
+  // shadowDatabaseUrl = "postgresql://postgres:mysecretpassword@localhost:5433/shadow_db_dev?schema=public" // Commenting out again
 }
 
 model Account {
@@ -29,7 +30,6 @@ model Account {
 model Clip {
   id             String        @id
   s3Key          String
-  transcription  String?
   createdAt      DateTime      @default(now())
   updatedAt      DateTime
   uploadedFileId String?
@@ -38,6 +38,7 @@ model Clip {
   isCompleted    Boolean       @default(false)
   watchTime      Int           @default(0)
   thumbnailUrl   String?
+  chunks         Json?
   UploadedFile   UploadedFile? @relation(fields: [uploadedFileId], references: [id], onDelete: Cascade)
   User           User          @relation(fields: [userId], references: [id], onDelete: Cascade)
 
@@ -47,7 +48,6 @@ model Clip {
   @@index([uploadedFileId])
   @@index([uploadedFileId, userId])
   @@index([userId])
-  @@unique([s3Key])
 }
 
 model Post {
@@ -79,6 +79,8 @@ model UploadedFile {
   updatedAt    DateTime
   userId       String
   thumbnailUrl String?
+  duration     Int?
+  transcript   Json?
   Clip         Clip[]
   User         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
