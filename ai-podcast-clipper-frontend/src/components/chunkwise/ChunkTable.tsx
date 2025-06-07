@@ -13,8 +13,11 @@ import {
   ChevronRight,
   RotateCw,
   Loader2,
+  RotateCcw,
 } from "lucide-react";
+import { ResetProgressModal } from "~/components/ui/reset-progress-modal";
 import { motion } from "framer-motion";
+import { toast } from "sonner";
 
 interface ChunkTableProps {
   clips: ClipWithDetails[];
@@ -33,6 +36,15 @@ export function ChunkTable({
 }: ChunkTableProps) {
   const router = useRouter();
   const [updatingClips, setUpdatingClips] = useState<Set<string>>(new Set());
+  const [resetModalState, setResetModalState] = useState<{
+    isOpen: boolean;
+    clipId: string;
+    clipIndex: number;
+  }>({
+    isOpen: false,
+    clipId: "",
+    clipIndex: 0,
+  });
 
   const handleCompletionToggle = async (clipId: string, completed: boolean) => {
     setUpdatingClips((prev) => new Set(prev).add(clipId));
@@ -60,6 +72,38 @@ export function ChunkTable({
     }
   };
 
+  const handleResetProgress = async () => {
+    const { clipId } = resetModalState;
+
+    try {
+      const response = await fetch(`/api/clips/${clipId}/reset`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+      });
+
+      if (!response.ok) {
+        const errorData = (await response.json().catch(() => ({}))) as {
+          message?: string;
+        };
+        throw new Error(errorData.message ?? "Failed to reset clip progress");
+      }
+
+      // Call the parent callback to update UI
+      onCompletionChange?.(clipId, false);
+
+      toast.success("Clip progress reset successfully! 🎉");
+    } catch (error) {
+      console.error("Error resetting clip progress:", error);
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : "Failed to reset clip progress",
+      );
+    }
+  };
+
   const formatWatchTime = (seconds: number) => {
     if (seconds === 0) return "Not started";
     const minutes = Math.floor(seconds / 60);
@@ -75,8 +119,22 @@ export function ChunkTable({
     });
   };
 
+  // Types for display items
+  type PlaceholderItem = {
+    id: string;
+    isPlaceholder: true;
+    index: number;
+  };
+
+  type ClipItem = ClipWithDetails & {
+    index: number;
+    isPlaceholder: false;
+  };
+
+  type DisplayItem = PlaceholderItem | ClipItem;
+
   // Generate placeholder rows when loading
-  const displayItems = isLoading
+  const displayItems: DisplayItem[] = isLoading
     ? Array.from({ length: placeholderCount }, (_, i) => ({
         id: `placeholder-${i}`,
         isPlaceholder: true,
@@ -101,7 +159,7 @@ export function ChunkTable({
                 Progress
               </th>
               <th className="hidden px-4 py-3 text-left text-xs font-medium tracking-wider text-gray-500 uppercase sm:px-6 md:table-cell">
-                Completed
+                Watched
               </th>
               <th className="px-4 py-3 text-center text-xs font-medium tracking-wider text-gray-500 uppercase sm:px-6">
                 Status
@@ -139,7 +197,8 @@ export function ChunkTable({
                 );
               }
 
-              const clip = item as ClipWithDetails & { index: number };
+              // Type guard ensures item is ClipItem when isPlaceholder is false
+              const clip = item;
               const watchProgress = Math.min((clip.watchTime / 300) * 100, 100);
               const isUpdating = updatingClips.has(clip.id);
 
@@ -150,9 +209,14 @@ export function ChunkTable({
                   animate={{ opacity: 1, y: 0 }}
                   transition={{ duration: 0.2, delay: clip.index * 0.02 }}
                   className={cn(
-                    "group transition-colors hover:bg-gray-50",
+                    "group cursor-pointer transition-colors hover:bg-gray-50",
                     clip.isCompleted && "bg-green-50/30 hover:bg-green-50/50",
                   )}
+                  onClick={() =>
+                    router.push(
+                      `/dashboard/projects/${projectId}/clips/${clip.id}`,
+                    )
+                  }
                 >
                   {/* Chunk Number */}
                   <td className="px-4 py-4 sm:px-6">
@@ -194,11 +258,11 @@ export function ChunkTable({
                     </div>
                   </td>
 
-                  {/* Completed Date */}
+                  {/* Watched Date */}
                   <td className="hidden px-4 py-4 text-sm text-gray-600 sm:px-6 md:table-cell">
                     {clip.completedAt ? (
                       <span className="text-green-600">
-                        {formatDate(clip.completedAt)}
+                        ✅ {formatDate(clip.completedAt)}
                       </span>
                     ) : (
                       <span className="text-gray-400">—</span>
@@ -227,11 +291,12 @@ export function ChunkTable({
                   <td className="px-4 py-4 text-right sm:px-6">
                     <div className="flex items-center justify-end gap-2">
                       <button
-                        onClick={() =>
+                        onClick={(e) => {
+                          e.stopPropagation();
                           router.push(
                             `/dashboard/projects/${projectId}/clips/${clip.id}`,
-                          )
-                        }
+                          );
+                        }}
                         className={cn(
                           "inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-medium transition-colors",
                           clip.isCompleted
@@ -251,6 +316,26 @@ export function ChunkTable({
                           </>
                         )}
                       </button>
+
+                      {/* Reset button - only show if there's progress to reset */}
+                      {(clip.watchTime > 0 || clip.isCompleted) && (
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setResetModalState({
+                              isOpen: true,
+                              clipId: clip.id,
+                              clipIndex: clip.index,
+                            });
+                          }}
+                          className="inline-flex items-center gap-1 rounded-lg border border-purple-300 bg-purple-50 px-2 py-1.5 text-xs font-medium text-purple-700 transition-colors hover:bg-purple-100"
+                          title="Reset progress"
+                        >
+                          <RotateCcw className="h-3.5 w-3.5" />
+                          <span className="hidden sm:inline">Reset</span>
+                        </button>
+                      )}
+
                       <button
                         onClick={(e) => {
                           e.stopPropagation();
@@ -270,6 +355,19 @@ export function ChunkTable({
           </tbody>
         </table>
       </div>
+
+      {/* Reset Progress Modal */}
+      <ResetProgressModal
+        isOpen={resetModalState.isOpen}
+        onClose={() =>
+          setResetModalState({ isOpen: false, clipId: "", clipIndex: 0 })
+        }
+        onConfirm={handleResetProgress}
+        title="Reset Chunk Progress"
+        description="This will reset your viewing progress for this chunk. Your watch time and completion status will be cleared."
+        itemType="clip"
+        itemName={`Chunk ${resetModalState.clipIndex + 1}`}
+      />
     </div>
   );
 }

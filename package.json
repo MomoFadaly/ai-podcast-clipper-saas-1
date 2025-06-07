@@ -1,6 +1,7 @@
 {
   "dependencies": {
     "@videojs-player/react": "^1.0.0",
+    "dotenv-cli": "^8.0.0",
     "video.js": "^8.23.3"
   }
 }

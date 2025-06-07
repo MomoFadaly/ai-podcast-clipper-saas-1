@@ -10,6 +10,7 @@ export interface ProjectWithStats {
   s3Key: string;
   uploaded: boolean;
   status: string;
+  processingProgress: number;
   thumbnailUrl: string | null;
   createdAt: Date;
   updatedAt: Date;
@@ -35,17 +36,35 @@ export interface DashboardStats {
   processingProjects: number;
 }
 
+// Chunk data structure from backend
+export interface ChunkData {
+  chunk_number: number;
+  start_time_seconds: number;
+  end_time_seconds: number;
+  duration_seconds: number;
+}
+
 export interface ClipWithDetails {
+  // Core identifiers (required)
   id: string;
   s3Key: string;
-  createdAt: Date;
-  updatedAt: Date;
   uploadedFileId: string | null;
   userId: string;
+
+  // Timestamps (required)
+  createdAt: Date;
+  updatedAt: Date;
+
+  // User progress (required)
   isCompleted: boolean;
   completedAt: Date | null;
   watchTime: number;
+
+  // Media data (required for functionality)
   thumbnailUrl: string | null;
+  chunks: ChunkData | null; // CRITICAL: Must be included for clips to work properly
+
+  // Optional data
   transcription?: string;
 }
 
@@ -70,6 +89,7 @@ export async function getUserProjects(): Promise<ProjectWithStats[]> {
         displayName: true,
         uploaded: true,
         status: true,
+        processingProgress: true,
         thumbnailUrl: true,
         createdAt: true,
         updatedAt: true,
@@ -135,6 +155,7 @@ export async function getUserProjects(): Promise<ProjectWithStats[]> {
         displayName: project.displayName,
         uploaded: project.uploaded,
         status: project.status,
+        processingProgress: project.processingProgress,
         thumbnailUrl: project.thumbnailUrl,
         createdAt: project.createdAt,
         updatedAt: project.updatedAt,
@@ -258,6 +279,7 @@ export async function getProjectById(
         displayName: true,
         uploaded: true,
         status: true,
+        processingProgress: true,
         thumbnailUrl: true,
         createdAt: true,
         updatedAt: true,
@@ -304,6 +326,7 @@ export async function getProjectById(
       s3Key: uploadedFile.s3Key,
       uploaded: uploadedFile.uploaded,
       status: uploadedFile.status,
+      processingProgress: uploadedFile.processingProgress,
       thumbnailUrl: uploadedFile.thumbnailUrl ?? null,
       createdAt: uploadedFile.createdAt,
       updatedAt: uploadedFile.updatedAt,
@@ -333,12 +356,31 @@ export async function deleteProject(projectId: string): Promise<boolean> {
   }
 
   try {
+    // First check if the project exists and belongs to the user
+    const existingProject = await db.uploadedFile.findFirst({
+      where: {
+        id: projectId,
+        userId: session.user.id,
+      },
+    });
+
+    if (!existingProject) {
+      console.error("Project not found or doesn't belong to user:", projectId);
+      return false;
+    }
+
+    // Log the deletion attempt for debugging
+    console.log("Attempting to delete project:", projectId);
+
+    // Delete the project - cascading deletes should handle related records
     await db.uploadedFile.delete({
       where: {
         id: projectId,
         userId: session.user.id,
       },
     });
+
+    console.log("Successfully deleted project:", projectId);
 
     // Invalidate cache to refresh the UI
     revalidatePath("/dashboard");
@@ -347,6 +389,20 @@ export async function deleteProject(projectId: string): Promise<boolean> {
     return true;
   } catch (error) {
     console.error("Error deleting project:", error);
+
+    // Log more detailed error information
+    if (error instanceof Error) {
+      console.error("Error message:", error.message);
+      console.error("Error stack:", error.stack);
+    }
+
+    // Check if it's a Prisma error
+    if (typeof error === "object" && error !== null && "code" in error) {
+      const prismaError = error as { code: string; meta?: unknown };
+      console.error("Prisma error code:", prismaError.code);
+      console.error("Prisma error meta:", prismaError.meta);
+    }
+
     return false;
   }
 }
@@ -498,18 +554,28 @@ export async function getProjectClips(
         uploadedFileId: projectId,
         userId: session.user.id,
       },
+      // Use comprehensive selection to prevent missing critical fields
       select: {
+        // Core identifiers
         id: true,
         s3Key: true,
-        createdAt: true,
-        updatedAt: true,
         uploadedFileId: true,
         userId: true,
+
+        // Timestamps
+        createdAt: true,
+        updatedAt: true,
+
+        // User progress data
         isCompleted: true,
         completedAt: true,
         watchTime: true,
+
+        // Media data
         thumbnailUrl: true,
-        // Only include transcription if explicitly requested
+        chunks: true, // CRITICAL: Contains timing, duration, and chunk metadata
+
+        // Optional transcription (only if requested to avoid large payloads)
         ...(includeTranscription && { transcription: true }),
       },
       orderBy: {
@@ -519,11 +585,35 @@ export async function getProjectClips(
       skip: offset,
     });
 
-    return clips.map((clip) => ({
-      ...clip,
-      // Add transcription as undefined if not requested to maintain interface
-      transcription: includeTranscription ? clip.transcription : undefined,
-    })) as ClipWithDetails[];
+    // Validate and transform clips with runtime checks
+    const validatedClips = clips.map((clip) => {
+      // CRITICAL VALIDATION: Ensure chunks data is present
+      if (!clip.chunks) {
+        console.error(
+          `⚠️  MISSING CHUNKS DATA for clip ${clip.id} in project ${projectId}! This will cause UI issues.`,
+        );
+        console.error("Clip data:", clip);
+      }
+
+      return {
+        ...clip,
+        // Add transcription as undefined if not requested to maintain interface
+        transcription: includeTranscription ? clip.transcription : undefined,
+      };
+    }) as ClipWithDetails[];
+
+    // Log summary for debugging
+    console.log(
+      `📊 Fetched ${validatedClips.length} clips for project ${projectId}:`,
+    );
+    const chunksValidation = validatedClips.map((clip) => ({
+      id: clip.id.split("-chunk-")[1] || "unknown",
+      hasChunks: !!clip.chunks,
+      duration: clip.chunks?.duration_seconds || 0,
+    }));
+    console.log("Chunks validation:", chunksValidation);
+
+    return validatedClips;
   } catch (error) {
     console.error("Error fetching project clips:", error);
     throw new Error("Failed to fetch project clips");

@@ -7,6 +7,7 @@ import { useSession } from "next-auth/react";
 import { deleteProject, type ProjectWithStats } from "~/actions/projects";
 import { ThumbnailImage } from "~/components/ui/thumbnail-image";
 import { useProjects } from "~/hooks/use-projects";
+import { useMultiProjectStatus } from "~/hooks/use-multi-project-status";
 
 export default function ProjectsPage() {
   const { data: session, status } = useSession();
@@ -14,6 +15,10 @@ export default function ProjectsPage() {
   const [sortBy, setSortBy] = useState("recent");
   const [filterStatus, setFilterStatus] = useState("all");
   const [deletingProject, setDeletingProject] = useState<string | null>(null);
+
+  // Real-time status updates for all projects
+  const { getProjectStatus, hasActiveConnection, activeConnections } =
+    useMultiProjectStatus(projects);
 
   // If still loading authentication, show loading
   if (status === "loading") {
@@ -103,16 +108,19 @@ export default function ProjectsPage() {
       return (a.displayName ?? "").localeCompare(b.displayName ?? "");
     });
 
-  const getStatusBadge = (status: string, progressPercentage: number) => {
+  const getProcessingStatusBadge = (
+    status: string,
+    progressPercentage: number,
+  ) => {
     if (status === "processed" || progressPercentage === 100) {
-      return { class: "bg-green-100 text-green-800", label: "Completed" };
+      return { class: "bg-green-100 text-green-800", label: "Ready" };
     } else if (
       status === "processing" ||
       (progressPercentage > 0 && progressPercentage < 100)
     ) {
-      return { class: "bg-blue-100 text-blue-800", label: "In Progress" };
+      return { class: "bg-blue-100 text-blue-800", label: "Processing" };
     } else if (status === "queued") {
-      return { class: "bg-yellow-100 text-yellow-800", label: "Processing" };
+      return { class: "bg-yellow-100 text-yellow-800", label: "Queued" };
     } else if (status === "no credits") {
       return { class: "bg-red-100 text-red-800", label: "Failed" };
     } else {
@@ -155,9 +163,21 @@ export default function ProjectsPage() {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold text-gray-900">Projects</h1>
-          <p className="mt-1 text-gray-500">
-            Manage your YouTube learning projects
-          </p>
+          <div className="mt-1 flex items-center gap-2">
+            <p className="text-gray-500">
+              Manage your YouTube learning projects
+            </p>
+
+            {/* Real-time connection indicator (development only) */}
+            {process.env.NODE_ENV === "development" &&
+              activeConnections > 0 && (
+                <div className="flex items-center rounded-full bg-green-100 px-2 py-1 text-xs text-green-700">
+                  <div className="mr-1 h-2 w-2 animate-pulse rounded-full bg-green-500" />
+                  {activeConnections} live connection
+                  {activeConnections !== 1 ? "s" : ""}
+                </div>
+              )}
+          </div>
         </div>
         <Link
           href="/dashboard/new-project"
@@ -291,8 +311,13 @@ export default function ProjectsPage() {
       ) : (
         <div className="grid grid-cols-1 gap-6 md:grid-cols-2 lg:grid-cols-3">
           {filteredProjects.map((project) => {
-            const statusInfo = getStatusBadge(
+            // Use real-time status if available, otherwise use project status
+            const effectiveStatus = getProjectStatus(
+              project.id,
               project.status,
+            );
+            const statusInfo = getProcessingStatusBadge(
+              effectiveStatus,
               project.progressPercentage,
             );
 
@@ -341,13 +366,27 @@ export default function ProjectsPage() {
                   <div className="absolute bottom-3 left-3 text-sm font-medium text-white">
                     {project.totalDuration}
                   </div>
-                  <div className="absolute right-3 bottom-3">
-                    <span
-                      className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium ${statusInfo.class}`}
-                    >
-                      {statusInfo.label}
-                    </span>
-                  </div>
+                  {/* Only show processing status while processing */}
+                  {effectiveStatus !== "processed" &&
+                    project.progressPercentage < 100 && (
+                      <div className="absolute right-3 bottom-3 flex items-center gap-1">
+                        <span
+                          className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium ${statusInfo.class}`}
+                        >
+                          {effectiveStatus === "processing" && (
+                            <div className="mr-1 h-2 w-2 animate-spin rounded-full border border-current border-t-transparent" />
+                          )}
+                          {statusInfo.label}
+                        </span>
+
+                        {/* Real-time connection indicator */}
+                        {hasActiveConnection(project.id) && (
+                          <div className="flex h-6 w-6 items-center justify-center rounded-full bg-green-100">
+                            <div className="h-2 w-2 animate-pulse rounded-full bg-green-500" />
+                          </div>
+                        )}
+                      </div>
+                    )}
                 </div>
 
                 {/* Content */}
@@ -366,18 +405,23 @@ export default function ProjectsPage() {
                   <div className="mb-4">
                     <div className="mb-1 flex items-center justify-between">
                       <span className="text-xs text-gray-500">
-                        {project.completedChunks} of {project.chunksCount}{" "}
-                        completed
+                        {project.completedChunks ?? 0} of {project.chunksCount}{" "}
+                        watched
                       </span>
                       <span className="text-xs text-gray-500">
-                        {Math.round(project.progressPercentage)}%
+                        {Math.round(
+                          ((project.completedChunks ?? 0) /
+                            (project.chunksCount ?? 1)) *
+                            100,
+                        )}
+                        % watched
                       </span>
                     </div>
                     <div className="h-2 w-full rounded-full bg-gray-200">
                       <div
-                        className="h-2 rounded-full bg-blue-600 transition-all duration-200 group-hover:bg-blue-700"
+                        className="h-2 rounded-full bg-purple-600 transition-all duration-200 group-hover:bg-purple-700"
                         style={{
-                          width: `${project.progressPercentage}%`,
+                          width: `${Math.round(((project.completedChunks ?? 0) / (project.chunksCount ?? 1)) * 100)}%`,
                         }}
                       ></div>
                     </div>

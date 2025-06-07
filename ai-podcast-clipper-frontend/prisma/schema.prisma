@@ -70,19 +70,21 @@ model Session {
 }
 
 model UploadedFile {
-  id           String   @id
-  s3Key        String
-  displayName  String?
-  uploaded     Boolean  @default(false)
-  status       String   @default("queued")
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime
-  userId       String
-  thumbnailUrl String?
-  duration     Int?
-  transcript   Json?
-  Clip         Clip[]
-  User         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  id               String   @id
+  s3Key            String
+  displayName      String?
+  uploaded         Boolean  @default(false)
+  status           String   @default("queued")
+  processingProgress Int    @default(0)
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime
+  userId           String
+  thumbnailUrl     String?
+  duration         Int?
+  transcript       Json?
+  Clip             Clip[]
+  ProjectTracks    ProjectTrack[]
+  User             User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([createdAt])
   @@index([s3Key])
@@ -106,6 +108,42 @@ model User {
   Post             Post[]
   Session          Session[]
   UploadedFile     UploadedFile[]
+  Track            Track[]
+}
+
+model Track {
+  id          String   @id @default(cuid())
+  name        String
+  description String?
+  color       String?
+  icon        String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  userId      String
+  
+  // Relations
+  User         User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  ProjectTracks ProjectTrack[]
+  
+  @@index([userId])
+  @@index([userId, createdAt])
+}
+
+model ProjectTrack {
+  id        String @id @default(cuid())
+  projectId String
+  trackId   String
+  addedAt   DateTime @default(now())
+  order     Int      @default(0)
+  
+  // Relations
+  Project UploadedFile @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  Track   Track        @relation(fields: [trackId], references: [id], onDelete: Cascade)
+  
+  @@unique([projectId, trackId])
+  @@index([trackId])
+  @@index([projectId])
+  @@index([trackId, order])
 }
 
 model VerificationToken {

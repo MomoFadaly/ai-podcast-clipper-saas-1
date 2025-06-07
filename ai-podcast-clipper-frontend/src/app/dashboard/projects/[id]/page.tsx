@@ -3,10 +3,10 @@
 import { useState, useCallback, useEffect } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
-import { useProject, useProjectClips } from "~/hooks/use-projects";
+import { useProject, useProjectClips, queryKeys } from "~/hooks/use-projects";
 import { useQueryClient } from "@tanstack/react-query";
+import { useRealTimeStatus } from "~/hooks/use-real-time-status";
 import {
-  deleteProject,
   type ProjectWithStats,
   type ClipWithDetails,
 } from "~/actions/projects";
@@ -15,6 +15,7 @@ import { ChunkTable } from "~/components/chunkwise/ChunkTable";
 import { CompletionCelebration } from "~/components/ui/completion-celebration";
 import { ThumbnailImage } from "~/components/ui/thumbnail-image";
 import { Button } from "~/components/ui/button";
+import { ResetProgressModal } from "~/components/ui/reset-progress-modal";
 import {
   RefreshCw,
   ArrowLeft,
@@ -32,9 +33,13 @@ import {
   Layers,
   Grid3X3,
   List,
+  RotateCcw,
 } from "lucide-react";
 import { cn } from "~/lib/utils";
 import { motion, AnimatePresence } from "framer-motion";
+import { toast } from "sonner";
+import { SelectionProvider } from "~/contexts/selection-context";
+import { DebugPanel } from "~/components/ui/debug-panel";
 
 interface ChunkConfig {
   method: "minutes" | "chunks";
@@ -42,7 +47,7 @@ interface ChunkConfig {
   totalChunks: number;
 }
 
-export default function ProjectDetailPage() {
+function ProjectDetailPageContent() {
   const params = useParams();
   const router = useRouter();
   const queryClient = useQueryClient();
@@ -54,16 +59,28 @@ export default function ProjectDetailPage() {
     isLoading: projectLoading,
     error: projectError,
   } = useProject(projectId);
+  // Use real-time status updates - keep connection alive until we've handled completion
+  const { currentStatus, currentProgress, isConnected } = useRealTimeStatus(
+    project ? projectId : null,
+    project?.status,
+  );
+
+  // Always fetch clips - let the backend handle returning empty array for non-processed projects
+  // This simplifies the cache behavior and avoids conditional query issues
   const {
     data: clips = [],
     isLoading: clipsLoading,
     error: clipsError,
+    refetch: refetchClips,
+    isFetching: clipsFetching,
+    isRefetching: clipsRefetching,
   } = useProjectClips(projectId, { limit: 20 });
 
   const [showCelebration, setShowCelebration] = useState(false);
   const [isRechunkDialogOpen, setIsRechunkDialogOpen] = useState(false);
   const [isRechunking, setIsRechunking] = useState(false);
   const [isDeletingProject, setIsDeletingProject] = useState(false);
+  const [isResetModalOpen, setIsResetModalOpen] = useState(false);
   const [layout, setLayout] = useState<"grid" | "list">("list"); // Default to list view
   const [rechunkConfig, setRechunkConfig] = useState<ChunkConfig>({
     method: "minutes",
@@ -77,6 +94,99 @@ export default function ProjectDetailPage() {
   const isLoading = projectLoading || clipsLoading;
   const error = projectError ?? clipsError;
 
+  // Simple status logging - no complex cache invalidation needed
+  useEffect(() => {
+    if (currentStatus && project && currentStatus !== project.status) {
+      console.log(
+        `📡 Project ${projectId} status updated: ${project.status} → ${currentStatus}`,
+      );
+    }
+  }, [currentStatus, project, projectId]);
+
+  // Also invalidate cache when status changes to ensure fresh data
+  useEffect(() => {
+    if (currentStatus === "processed" && project?.status !== "processed") {
+      console.log(`🔄 Processing complete, invalidating queries...`);
+
+      // Invalidate both project and clips queries to ensure fresh data
+      setTimeout(async () => {
+        await queryClient.invalidateQueries({
+          queryKey: queryKeys.project(projectId),
+        });
+        await queryClient.invalidateQueries({
+          queryKey: queryKeys.clips(projectId),
+          exact: false,
+        });
+      }, 1000); // Give backend a moment to fully update
+    }
+  }, [currentStatus, project?.status, projectId, queryClient]);
+
+  // Force refetch clips when they're empty but should exist
+  useEffect(() => {
+    const shouldHaveClips =
+      (project?.status === "processed" || currentStatus === "processed") &&
+      (project?.totalClips ?? 0) > 0 &&
+      clips.length === 0 &&
+      !clipsLoading &&
+      !clipsFetching;
+
+    if (shouldHaveClips) {
+      console.log(`🔄 Clips missing but expected, forcing refetch...`, {
+        projectStatus: project?.status,
+        currentStatus,
+        totalClips: project?.totalClips,
+        clipsLength: clips.length,
+      });
+
+      // Force refetch after a small delay
+      setTimeout(() => {
+        refetchClips();
+      }, 1500);
+    }
+  }, [
+    project?.status,
+    project?.totalClips,
+    currentStatus,
+    clips.length,
+    clipsLoading,
+    clipsFetching,
+    refetchClips,
+  ]);
+
+  // Handle window focus and visibility changes to ensure clips load
+  useEffect(() => {
+    const handleFocus = () => {
+      if (
+        project?.status === "processed" &&
+        clips.length === 0 &&
+        !clipsLoading
+      ) {
+        console.log(`🔄 Window focused, checking for missing clips...`);
+        refetchClips();
+      }
+    };
+
+    const handleVisibilityChange = () => {
+      if (
+        !document.hidden &&
+        project?.status === "processed" &&
+        clips.length === 0 &&
+        !clipsLoading
+      ) {
+        console.log(`🔄 Tab became visible, checking for missing clips...`);
+        refetchClips();
+      }
+    };
+
+    window.addEventListener("focus", handleFocus);
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+
+    return () => {
+      window.removeEventListener("focus", handleFocus);
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+    };
+  }, [project?.status, clips.length, clipsLoading, refetchClips]);
+
   // Initialize rechunk config when project loads
   useEffect(() => {
     if (project && clips.length > 0) {
@@ -89,6 +199,28 @@ export default function ProjectDetailPage() {
       });
     }
   }, [project, clips]);
+
+  // Debug logging for clips data
+  useEffect(() => {
+    console.log(`📊 Clips data state:`, {
+      projectId,
+      clipsLength: clips.length,
+      clipsLoading,
+      clipsFetching,
+      clipsRefetching,
+      projectStatus: project?.status,
+      currentStatus,
+      clips: clips.slice(0, 2), // Log first 2 clips for debugging
+    });
+  }, [
+    clips,
+    clipsLoading,
+    clipsFetching,
+    clipsRefetching,
+    project?.status,
+    currentStatus,
+    projectId,
+  ]);
 
   const handleCompletionChange = useCallback(
     (clipId: string, isCompleted: boolean) => {
@@ -121,17 +253,107 @@ export default function ProjectDetailPage() {
 
     setIsDeletingProject(true);
     try {
-      const success = await deleteProject(project.id);
-      if (success) {
+      console.log("Deleting project:", project.id);
+
+      const response = await fetch(`/api/projects/${project.id}`, {
+        method: "DELETE",
+      });
+
+      if (response.ok) {
+        const data = (await response.json()) as {
+          success: boolean;
+          message: string;
+        };
+        console.log("Delete response:", data);
+        toast.success("Project deleted successfully!");
+
+        // Invalidate React Query cache
+        await queryClient.invalidateQueries({ queryKey: queryKeys.projects });
+
         router.push("/dashboard/library");
       } else {
-        alert("Failed to delete project. Please try again.");
+        const errorData = (await response.json().catch(() => ({}))) as {
+          error?: string;
+        };
+        console.error("Delete project failed:", response.status, errorData);
+
+        let errorMessage = "Failed to delete project. Please try again.";
+
+        if (response.status === 401) {
+          errorMessage = "You are not authorized to delete this project.";
+        } else if (response.status === 404) {
+          errorMessage = "Project not found. It may have already been deleted.";
+        } else if (response.status === 409) {
+          errorMessage =
+            "Cannot delete project because it has related data. Please contact support.";
+        } else if (errorData?.error) {
+          errorMessage = errorData.error;
+        }
+
+        toast.error(errorMessage);
       }
     } catch (err) {
       console.error("Error deleting project:", err);
-      alert("Failed to delete project. Please try again.");
+      toast.error(
+        "Network error while deleting project. Please check your connection and try again.",
+      );
     } finally {
       setIsDeletingProject(false);
+    }
+  };
+
+  const handleResetProgress = async () => {
+    if (!project) return;
+
+    // IMPORTANT: Reset should only affect user progress data, never trigger reprocessing
+    // This function ONLY resets clip completion/watchTime data, NOT the project processing status
+    // We use optimistic updates and careful cache invalidation to avoid triggering apparent "reprocessing"
+    try {
+      const response = await fetch(`/api/projects/${project.id}/reset`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+      });
+
+      if (!response.ok) {
+        const errorData = (await response.json().catch(() => ({}))) as {
+          message?: string;
+        };
+        throw new Error(
+          errorData.message ?? "Failed to reset project progress",
+        );
+      }
+
+      // Optimistically update clips data without touching project processing status
+      queryClient.setQueryData(
+        queryKeys.clips(projectId, { limit: 20 }),
+        (oldData: ClipWithDetails[] | undefined) => {
+          return (
+            oldData?.map((clip) => ({
+              ...clip,
+              isCompleted: false,
+              completedAt: null,
+              watchTime: 0,
+            })) ?? []
+          );
+        },
+      );
+
+      // Only invalidate clips data, not the entire project (to avoid apparent reprocessing)
+      await queryClient.invalidateQueries({
+        queryKey: queryKeys.clips(projectId),
+        exact: false, // This will invalidate all clips queries for this project
+      });
+
+      toast.success("Project progress reset successfully! 🎉");
+    } catch (error) {
+      console.error("Error resetting project progress:", error);
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : "Failed to reset project progress",
+      );
     }
   };
 
@@ -188,16 +410,21 @@ export default function ProjectDetailPage() {
       setIsRechunkDialogOpen(false);
 
       // Invalidate and refetch project data
-      await queryClient.invalidateQueries({ queryKey: ["project", projectId] });
       await queryClient.invalidateQueries({
-        queryKey: ["project-clips", projectId],
+        queryKey: queryKeys.project(projectId),
+      });
+      await queryClient.invalidateQueries({
+        queryKey: queryKeys.clips(projectId),
+        exact: false,
       });
 
       // Optional: Show success message
-      alert("Project re-chunking started! Processing may take a few minutes.");
+      toast.success(
+        "Project re-chunking started! Processing may take a few minutes.",
+      );
     } catch (error) {
       console.error("Error re-chunking project:", error);
-      alert(
+      toast.error(
         error instanceof Error ? error.message : "Failed to re-chunk project",
       );
     } finally {
@@ -234,12 +461,15 @@ export default function ProjectDetailPage() {
     }
   };
 
-  const getStatusInfo = (status: string, progressPercentage: number) => {
+  const getProcessingStatusInfo = (
+    status: string,
+    progressPercentage: number,
+  ) => {
     if (status === "processed" || progressPercentage === 100) {
       return {
         color: "green",
-        label: "Completed",
-        description: "Project processing is complete and clips are ready",
+        label: "Ready",
+        description: "Content is processed and ready to watch",
         badgeClass: "bg-green-100 text-green-800 border-green-200",
         progressClass: "bg-green-500",
         icon: CheckCircle2,
@@ -287,6 +517,39 @@ export default function ProjectDetailPage() {
     }
   };
 
+  // Calculate user completion status
+  const getUserCompletionInfo = () => {
+    if (!clips.length) {
+      return {
+        completedCount: 0,
+        totalCount: 0,
+        progressPercentage: 0,
+        status: "not-started" as const,
+      };
+    }
+
+    const completedCount = clips.filter((clip) => clip.isCompleted).length;
+    const totalCount = clips.length;
+    const userProgressPercentage =
+      totalCount > 0 ? (completedCount / totalCount) * 100 : 0;
+
+    let status: "not-started" | "in-progress" | "completed";
+    if (completedCount === 0) {
+      status = "not-started";
+    } else if (completedCount === totalCount) {
+      status = "completed";
+    } else {
+      status = "in-progress";
+    }
+
+    return {
+      completedCount,
+      totalCount,
+      progressPercentage: userProgressPercentage,
+      status,
+    };
+  };
+
   if (isLoading) {
     return (
       <div className="flex min-h-[60vh] items-center justify-center">
@@ -330,7 +593,8 @@ export default function ProjectDetailPage() {
             Project Not Found
           </h1>
           <p className="mt-2 text-gray-600">
-            The project you're looking for doesn't exist or has been deleted.
+            The project you&rsquo;re looking for doesn&rsquo;t exist or has been
+            deleted.
           </p>
           <Link
             href="/dashboard/library"
@@ -344,8 +608,19 @@ export default function ProjectDetailPage() {
     );
   }
 
-  const statusInfo = getStatusInfo(project.status, project.progressPercentage);
-  const StatusIcon = statusInfo.icon;
+  // Use real-time status if available, otherwise use project status
+  const effectiveStatus = currentStatus || project.status;
+
+  // Use processing progress when available (during processing), otherwise use user progress
+  const effectiveProgress =
+    currentProgress !== null ? currentProgress : project.progressPercentage;
+
+  const processingStatus = getProcessingStatusInfo(
+    effectiveStatus,
+    effectiveProgress,
+  );
+  const userCompletion = getUserCompletionInfo();
+  const StatusIcon = processingStatus.icon;
 
   return (
     <div className="mx-auto max-w-7xl px-4 py-4 sm:px-6 sm:py-6 lg:px-8">
@@ -377,7 +652,7 @@ export default function ProjectDetailPage() {
               <span className="text-gray-900">Project Details</span>
             </nav>
             <h1 className="text-2xl font-bold text-gray-900 sm:text-3xl">
-              {project.displayName}
+              {project.displayName ?? `Project ${project.id.slice(0, 8)}`}
             </h1>
           </div>
 
@@ -397,16 +672,32 @@ export default function ProjectDetailPage() {
             )}
 
             {(project.progressPercentage === 100 ||
-              project.status === "processed") && (
-              <button
-                onClick={() => setIsRechunkDialogOpen(true)}
-                className="inline-flex items-center justify-center rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm font-medium text-gray-700 transition-colors hover:bg-gray-50"
-              >
-                <RefreshCw className="mr-2 h-4 w-4" />
-                <span className="hidden sm:inline">Re-chunk</span>
-                <span className="sm:hidden">Re-chunk</span>
-              </button>
-            )}
+              project.status === "processed") &&
+              project.status !== "failed" &&
+              project.status !== "no credits" && (
+                <>
+                  <button
+                    onClick={() => setIsRechunkDialogOpen(true)}
+                    className="inline-flex items-center justify-center rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm font-medium text-gray-700 transition-colors hover:bg-gray-50"
+                  >
+                    <RefreshCw className="mr-2 h-4 w-4" />
+                    <span className="hidden sm:inline">Re-chunk</span>
+                    <span className="sm:hidden">Re-chunk</span>
+                  </button>
+
+                  {/* Reset Progress Button - Only show if there's progress to reset */}
+                  {userCompletion.completedCount > 0 && (
+                    <button
+                      onClick={() => setIsResetModalOpen(true)}
+                      className="inline-flex items-center justify-center rounded-lg border border-purple-300 bg-purple-50 px-3 py-2 text-sm font-medium text-purple-700 transition-colors hover:bg-purple-100"
+                    >
+                      <RotateCcw className="mr-2 h-4 w-4" />
+                      <span className="hidden sm:inline">Reset Progress</span>
+                      <span className="sm:hidden">Reset</span>
+                    </button>
+                  )}
+                </>
+              )}
 
             <button
               onClick={handleDeleteProject}
@@ -468,56 +759,121 @@ export default function ProjectDetailPage() {
                 </span>
               </div>
 
-              {/* Status Badge */}
-              <div
-                className={cn(
-                  "inline-flex items-center rounded-full border px-3 py-1.5 text-sm font-medium",
-                  statusInfo.badgeClass,
-                )}
-              >
-                <StatusIcon
-                  className={cn("mr-2 h-4 w-4", statusInfo.iconClass)}
-                />
-                {statusInfo.label}
-              </div>
+              {/* Only show processing status while actually processing */}
+              {effectiveProgress < 100 && effectiveStatus !== "processed" ? (
+                <>
+                  {/* Processing Status Badge with Real-time Indicator */}
+                  <div className="flex items-center gap-2">
+                    <div
+                      className={cn(
+                        "inline-flex items-center rounded-full border px-3 py-1.5 text-sm font-medium",
+                        processingStatus.badgeClass,
+                      )}
+                    >
+                      <StatusIcon
+                        className={cn(
+                          "mr-2 h-4 w-4",
+                          processingStatus.iconClass,
+                        )}
+                      />
+                      {processingStatus.label}
+                    </div>
 
-              <p className="text-sm text-gray-600 sm:text-base">
-                {statusInfo.description}
-              </p>
+                    {/* Real-time connection indicator */}
+                    {isConnected && (
+                      <div className="flex items-center text-xs text-green-600">
+                        <div className="mr-1 h-2 w-2 animate-pulse rounded-full bg-green-500" />
+                        Live
+                      </div>
+                    )}
+                  </div>
 
-              {/* Progress Bar - Enhanced */}
-              <div className="space-y-2">
-                <div className="flex items-center justify-between text-sm">
-                  <span className="text-gray-600">Progress</span>
-                  <span className="font-medium text-gray-900">
-                    {Math.round(project.progressPercentage)}%
-                  </span>
+                  <p className="text-sm text-gray-600 sm:text-base">
+                    {processingStatus.description}
+                  </p>
+
+                  {/* Processing Progress */}
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between text-sm">
+                      <span className="text-gray-600">Processing</span>
+                      <span className="font-medium text-gray-900">
+                        {Math.round(effectiveProgress)}%
+                      </span>
+                    </div>
+                    <div className="relative h-2 w-full overflow-hidden rounded-full bg-gray-200">
+                      <motion.div
+                        initial={{ width: 0 }}
+                        animate={{ width: `${effectiveProgress}%` }}
+                        transition={{ duration: 0.5, ease: "easeOut" }}
+                        className={cn(
+                          "h-2 rounded-full",
+                          processingStatus.progressClass,
+                        )}
+                      />
+                      {/* Animated processing indicator */}
+                      {effectiveStatus === "processing" && (
+                        <motion.div
+                          className="absolute inset-0 bg-gradient-to-r from-transparent via-white/30 to-transparent"
+                          animate={{ x: ["-100%", "100%"] }}
+                          transition={{
+                            duration: 1.5,
+                            repeat: Infinity,
+                            ease: "easeInOut",
+                          }}
+                        />
+                      )}
+                    </div>
+                    <div className="flex items-center justify-between text-xs text-gray-500">
+                      <span>Backend processing status</span>
+                      <span>
+                        Updated{" "}
+                        {new Date(project.updatedAt).toLocaleDateString()}
+                      </span>
+                    </div>
+                  </div>
+                </>
+              ) : (
+                /* Content is ready - show only user progress */
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between text-sm">
+                    <span className="text-gray-600">Your Progress</span>
+                    <span className="font-medium text-gray-900">
+                      {Math.round(userCompletion.progressPercentage)}%
+                    </span>
+                  </div>
+                  <div className="relative h-3 w-full overflow-hidden rounded-full bg-gray-200">
+                    <motion.div
+                      initial={{ width: 0 }}
+                      animate={{
+                        width: `${userCompletion.progressPercentage}%`,
+                      }}
+                      transition={{ duration: 0.5, ease: "easeOut" }}
+                      className="h-3 rounded-full bg-gradient-to-r from-purple-500 to-purple-600"
+                    />
+                  </div>
+                  <div className="flex items-center justify-between text-xs text-gray-500">
+                    <span>
+                      {userCompletion.completedCount} of{" "}
+                      {userCompletion.totalCount} chunks watched
+                    </span>
+                    <span>
+                      {userCompletion.status === "completed"
+                        ? "🎉 All watched!"
+                        : userCompletion.status === "in-progress"
+                          ? "📚 Keep learning"
+                          : "▶️ Ready to start"}
+                    </span>
+                  </div>
                 </div>
-                <div className="relative h-3 w-full overflow-hidden rounded-full bg-gray-200">
-                  <motion.div
-                    initial={{ width: 0 }}
-                    animate={{ width: `${project.progressPercentage}%` }}
-                    transition={{ duration: 0.5, ease: "easeOut" }}
-                    className={cn("h-3 rounded-full", statusInfo.progressClass)}
-                  />
-                </div>
-                <div className="flex items-center justify-between text-xs text-gray-500">
-                  <span>
-                    {project.completedChunks} of {project.chunksCount ?? 0}{" "}
-                    chunks completed
-                  </span>
-                  <span>
-                    Updated {new Date(project.updatedAt).toLocaleDateString()}
-                  </span>
-                </div>
-              </div>
+              )}
             </div>
           </div>
         </motion.div>
 
         {/* Content Based on Status */}
-        {project.progressPercentage === 100 ||
-        project.status === "processed" ? (
+        {(effectiveProgress === 100 || effectiveStatus === "processed") &&
+        effectiveStatus !== "failed" &&
+        effectiveStatus !== "no credits" ? (
           // Completed Project - Show Clips
           <motion.div
             initial={{ opacity: 0 }}
@@ -570,7 +926,7 @@ export default function ProjectDetailPage() {
               layout === "grid" ? (
                 // Grid View
                 <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 sm:gap-6 lg:grid-cols-3">
-                  {clips.length > 0
+                  {clips.length > 0 && !clipsLoading && !clipsFetching
                     ? clips.map((clip, index) => (
                         <motion.div
                           key={clip.id}
@@ -586,7 +942,7 @@ export default function ProjectDetailPage() {
                           />
                         </motion.div>
                       ))
-                    : // Show placeholder chunks when clips haven't been created yet
+                    : // Show placeholder chunks when clips are loading or haven't been created yet
                       Array.from({ length: project.chunksCount ?? 0 }).map(
                         (_, index) => (
                           <motion.div
@@ -603,7 +959,9 @@ export default function ProjectDetailPage() {
                               Chunk {index + 1}
                             </h4>
                             <p className="text-sm text-gray-400">
-                              Processing clip...
+                              {clipsLoading || clipsFetching
+                                ? "Loading clip..."
+                                : "Processing clip..."}
                             </p>
                           </motion.div>
                         ),
@@ -616,7 +974,9 @@ export default function ProjectDetailPage() {
                   projectId={projectId}
                   onCompletionChange={handleCompletionChange}
                   isLoading={
-                    clips.length === 0 && (project.chunksCount ?? 0) > 0
+                    clipsLoading ||
+                    clipsFetching ||
+                    (clips.length === 0 && (project.chunksCount ?? 0) > 0)
                   }
                   placeholderCount={project.chunksCount ?? 0}
                 />
@@ -635,41 +995,83 @@ export default function ProjectDetailPage() {
             )}
           </motion.div>
         ) : (
-          // Processing/Pending Project - Show Status
+          // Processing/Pending/Failed Project - Show Status
           <motion.div
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             transition={{ duration: 0.3, delay: 0.2 }}
             className="space-y-4 sm:space-y-6"
           >
-            <div className="rounded-lg border border-blue-200 bg-blue-50 p-4 sm:p-6">
+            <div
+              className={cn(
+                "rounded-lg border p-4 sm:p-6",
+                effectiveStatus === "failed" || effectiveStatus === "no credits"
+                  ? "border-red-200 bg-red-50"
+                  : "border-blue-200 bg-blue-50",
+              )}
+            >
               <div className="flex items-start">
                 <StatusIcon
                   className={cn(
-                    "h-6 w-6 flex-shrink-0 text-blue-600",
-                    statusInfo.iconClass,
+                    "h-6 w-6 flex-shrink-0",
+                    effectiveStatus === "failed" ||
+                      effectiveStatus === "no credits"
+                      ? "text-red-600"
+                      : "text-blue-600",
+                    processingStatus.iconClass,
                   )}
                 />
                 <div className="ml-3 flex-1">
-                  <h3 className="text-lg font-medium text-blue-900">
-                    {statusInfo.label === "Processing"
+                  <h3
+                    className={cn(
+                      "text-lg font-medium",
+                      effectiveStatus === "failed" ||
+                        effectiveStatus === "no credits"
+                        ? "text-red-900"
+                        : "text-blue-900",
+                    )}
+                  >
+                    {processingStatus.label === "Processing"
                       ? "Processing Your Content"
-                      : statusInfo.label}
+                      : processingStatus.label}
                   </h3>
-                  <p className="mt-1 text-sm text-blue-800 sm:text-base">
-                    {statusInfo.description}
+                  <p
+                    className={cn(
+                      "mt-1 text-sm sm:text-base",
+                      effectiveStatus === "failed" ||
+                        effectiveStatus === "no credits"
+                        ? "text-red-800"
+                        : "text-blue-800",
+                    )}
+                  >
+                    {processingStatus.description}
                   </p>
 
-                  {project.status === "processing" && (
+                  {effectiveStatus === "processing" && (
                     <div className="mt-4">
                       <p className="mb-2 text-sm text-blue-700">
-                        What's happening now:
+                        What&rsquo;s happening now:
                       </p>
                       <ul className="list-inside list-disc space-y-1 text-sm text-blue-700">
                         <li>Analyzing audio and video content</li>
                         <li>Splitting into optimized learning segments</li>
                         <li>Generating transcripts and summaries</li>
                         <li>Creating searchable content index</li>
+                      </ul>
+                    </div>
+                  )}
+
+                  {(effectiveStatus === "failed" ||
+                    effectiveStatus === "no credits") && (
+                    <div className="mt-4">
+                      <p className="mb-3 text-sm text-red-700">
+                        <strong>What can you do:</strong>
+                      </p>
+                      <ul className="list-inside list-disc space-y-1 text-sm text-red-700">
+                        <li>Try uploading the content again</li>
+                        <li>Check if the video/audio file is corrupted</li>
+                        <li>Ensure the content meets our supported formats</li>
+                        <li>Contact support if the issue persists</li>
                       </ul>
                     </div>
                   )}
@@ -685,6 +1087,18 @@ export default function ProjectDetailPage() {
             onComplete={() => setShowCelebration(false)}
           />
         )}
+
+        {/* Reset Progress Modal */}
+        <ResetProgressModal
+          isOpen={isResetModalOpen}
+          onClose={() => setIsResetModalOpen(false)}
+          onConfirm={handleResetProgress}
+          title="Reset Project Progress"
+          description="This will reset your viewing progress for all chunks in this project. You'll be able to start fresh and track your progress again."
+          itemCount={userCompletion.completedCount}
+          itemType="project"
+          itemName={project.displayName ?? `Project ${project.id.slice(0, 8)}`}
+        />
 
         {/* Re-chunk Modal - Mobile Optimized */}
         <AnimatePresence>
@@ -794,6 +1208,19 @@ export default function ProjectDetailPage() {
           )}
         </AnimatePresence>
       </motion.div>
+
+      {/* Debug Panel for development */}
+      {process.env.NODE_ENV === "development" && (
+        <DebugPanel projectId={projectId} />
+      )}
     </div>
+  );
+}
+
+export default function ProjectDetailPage() {
+  return (
+    <SelectionProvider>
+      <ProjectDetailPageContent />
+    </SelectionProvider>
   );
 }

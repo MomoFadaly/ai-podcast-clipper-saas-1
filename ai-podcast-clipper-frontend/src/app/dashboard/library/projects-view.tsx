@@ -5,6 +5,9 @@ import Link from "next/link";
 import { deleteProject } from "~/actions/projects";
 import { ThumbnailImage } from "~/components/ui/thumbnail-image";
 import { useProjects } from "~/hooks/use-projects";
+import { useRenameProject } from "~/hooks/use-tracks";
+import AddProjectToTrackModal from "~/components/tracks/add-project-to-track-modal";
+import ProjectTracksDisplay from "~/components/tracks/project-tracks-display";
 import {
   Calendar,
   Clock,
@@ -13,23 +16,43 @@ import {
   Youtube,
   FolderOpen,
   Plus,
+  Route,
+  MoreHorizontal,
 } from "lucide-react";
 import { cn } from "~/lib/utils";
 import { motion } from "framer-motion";
+import { InlineEdit } from "~/components/ui/inline-edit";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "~/components/ui/dropdown-menu";
+import { Checkbox } from "~/components/ui/checkbox";
+import { SelectAllCheckbox } from "~/components/ui/select-all-checkbox";
+import { useSelection } from "~/contexts/selection-context";
 
 interface ProjectsViewProps {
   layoutType: "grid" | "list";
   searchQuery: string;
+  isSelectionMode?: boolean;
 }
 
 export default function ProjectsView({
   layoutType,
   searchQuery,
+  isSelectionMode = false,
 }: ProjectsViewProps) {
   const { data: projects = [], isLoading, error, refetch } = useProjects();
   const [deletingProject, setDeletingProject] = useState<string | null>(null);
-  const [sortBy, setSortBy] = useState("recent");
-  const [filterStatus, setFilterStatus] = useState("all");
+  const [sortBy] = useState("recent");
+  const [filterStatus] = useState("all");
+  const [trackModalProject, setTrackModalProject] = useState<{
+    id: string;
+    name: string;
+  } | null>(null);
+  const renameProjectMutation = useRenameProject();
+  const { toggleItemSelection, isItemSelected } = useSelection();
 
   const handleDeleteProject = async (projectId: string) => {
     if (
@@ -53,6 +76,20 @@ export default function ProjectsView({
       alert("Failed to delete project. Please try again.");
     } finally {
       setDeletingProject(null);
+    }
+  };
+
+  const handleProjectRename = async (projectId: string, newName: string) => {
+    try {
+      await renameProjectMutation.mutateAsync({
+        projectId,
+        displayName: newName.trim(),
+      });
+      // Refetch to update the display
+      void refetch();
+    } catch (error) {
+      console.error("Failed to rename project:", error);
+      throw error; // Re-throw so InlineEdit can handle the error
     }
   };
 
@@ -92,16 +129,19 @@ export default function ProjectsView({
       return (a.displayName ?? "").localeCompare(b.displayName ?? "");
     });
 
-  const getStatusBadge = (status: string, progressPercentage: number) => {
+  const getProcessingStatusBadge = (
+    status: string,
+    progressPercentage: number,
+  ) => {
     if (status === "processed" || progressPercentage === 100) {
-      return { class: "bg-green-100 text-green-800", label: "Completed" };
+      return { class: "bg-green-100 text-green-800", label: "Ready" };
     } else if (
       status === "processing" ||
       (progressPercentage > 0 && progressPercentage < 100)
     ) {
-      return { class: "bg-blue-100 text-blue-800", label: "In Progress" };
+      return { class: "bg-blue-100 text-blue-800", label: "Processing" };
     } else if (status === "queued") {
-      return { class: "bg-yellow-100 text-yellow-800", label: "Processing" };
+      return { class: "bg-yellow-100 text-yellow-800", label: "Queued" };
     } else if (status === "no credits") {
       return { class: "bg-red-100 text-red-800", label: "Failed" };
     } else {
@@ -186,249 +226,442 @@ export default function ProjectsView({
   // Grid Layout
   if (layoutType === "grid") {
     return (
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 sm:gap-6 lg:grid-cols-3">
-        {filteredProjects.map((project, index) => {
-          const statusInfo = getStatusBadge(
-            project.status,
-            project.progressPercentage,
-          );
-          return (
-            <motion.div
-              key={project.id}
-              initial={{ opacity: 0, scale: 0.95 }}
-              animate={{ opacity: 1, scale: 1 }}
-              transition={{
-                duration: 0.2,
-                delay: index * 0.03,
-                ease: [0.4, 0, 0.2, 1],
-              }}
-              className="group relative cursor-pointer overflow-hidden rounded-lg border border-gray-200 bg-white transition-all duration-200 hover:border-gray-300 hover:shadow-lg"
-            >
-              <Link
-                href={`/dashboard/projects/${project.id}`}
-                className="absolute inset-0 z-10"
-                aria-label={`View project: ${project.displayName}`}
-              />
+      <div>
+        {/* Select All Checkbox */}
+        {isSelectionMode && (
+          <SelectAllCheckbox
+            availableItems={filteredProjects.map((project) => project.id)}
+            label="Select all projects"
+          />
+        )}
 
-              {/* Thumbnail */}
-              <div className="relative aspect-video bg-gray-100">
-                <ThumbnailImage
-                  thumbnailUrl={project.thumbnailUrl}
-                  alt={project.displayName ?? "Project thumbnail"}
-                  className="h-full w-full object-cover"
-                />
-                <div className="absolute inset-0 bg-gradient-to-t from-black/50 to-transparent" />
-                <div className="absolute bottom-2 left-2 text-xs font-medium text-white sm:bottom-3 sm:left-3 sm:text-sm">
-                  {project.totalDuration}
-                </div>
-                <div className="absolute right-2 bottom-2 sm:right-3 sm:bottom-3">
-                  <span
-                    className={cn(
-                      "inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium sm:px-2.5",
-                      statusInfo.class,
-                    )}
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 sm:gap-6 lg:grid-cols-3">
+          {filteredProjects.map((project, index) => {
+            const statusInfo = getProcessingStatusBadge(
+              project.status,
+              project.progressPercentage,
+            );
+            return (
+              <motion.div
+                key={project.id}
+                initial={{ opacity: 0, scale: 0.95 }}
+                animate={{ opacity: 1, scale: 1 }}
+                transition={{
+                  duration: 0.2,
+                  delay: index * 0.03,
+                  ease: [0.4, 0, 0.2, 1],
+                }}
+                className="group relative cursor-pointer overflow-hidden rounded-lg border border-gray-200 bg-white transition-all duration-200 hover:border-gray-300 hover:shadow-lg"
+              >
+                {/* Selection Checkbox */}
+                {isSelectionMode && (
+                  <div
+                    className="absolute top-2 left-2 z-20"
+                    onClick={(e) => e.stopPropagation()}
                   >
-                    {statusInfo.label}
-                  </span>
-                </div>
-              </div>
-
-              {/* Content */}
-              <div className="p-3 sm:p-4">
-                <h3 className="mb-2 line-clamp-2 text-sm font-medium text-gray-900 sm:text-base">
-                  {project.displayName}
-                </h3>
-                <div className="mb-3 flex items-center text-xs text-gray-500 sm:text-sm">
-                  <span>{project.chunksCount} chunks</span>
-                  <span className="mx-2">•</span>
-                  <span>
-                    {new Date(project.createdAt).toLocaleDateString()}
-                  </span>
-                </div>
-
-                {/* Progress */}
-                <div className="mb-3 sm:mb-4">
-                  <div className="mb-1 flex items-center justify-between">
-                    <span className="text-xs text-gray-500">
-                      {project.completedChunks} of {project.chunksCount}
-                    </span>
-                    <span className="text-xs text-gray-500">
-                      {Math.round(project.progressPercentage)}%
-                    </span>
-                  </div>
-                  <div className="h-1.5 w-full rounded-full bg-gray-200 sm:h-2">
-                    <div
-                      className="h-1.5 rounded-full bg-blue-600 transition-all duration-200 sm:h-2"
-                      style={{ width: `${project.progressPercentage}%` }}
+                    <Checkbox
+                      checked={isItemSelected(project.id)}
+                      onCheckedChange={() => toggleItemSelection(project.id)}
+                      className="h-5 w-5 bg-white/90 backdrop-blur-sm"
                     />
                   </div>
+                )}
+
+                <Link
+                  href={`/dashboard/projects/${project.id}`}
+                  className={cn(
+                    "absolute inset-0 z-10",
+                    isSelectionMode && "pointer-events-none",
+                  )}
+                  aria-label={`View project: ${project.displayName}`}
+                />
+
+                {/* Thumbnail */}
+                <div className="relative aspect-video bg-gray-100">
+                  <ThumbnailImage
+                    thumbnailUrl={project.thumbnailUrl}
+                    alt={project.displayName ?? "Project thumbnail"}
+                    className="h-full w-full object-cover"
+                  />
+                  <div className="absolute inset-0 bg-gradient-to-t from-black/50 to-transparent" />
+                  <div className="absolute bottom-2 left-2 text-xs font-medium text-white sm:bottom-3 sm:left-3 sm:text-sm">
+                    {project.totalDuration}
+                  </div>
+                  {/* Only show processing status while processing */}
+                  {project.status !== "processed" &&
+                    project.progressPercentage < 100 && (
+                      <div className="absolute right-2 bottom-2 sm:right-3 sm:bottom-3">
+                        <span
+                          className={cn(
+                            "inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium sm:px-2.5",
+                            statusInfo.class,
+                          )}
+                        >
+                          {project.status === "processing" && (
+                            <div className="mr-1 h-2 w-2 animate-spin rounded-full border border-current border-t-transparent" />
+                          )}
+                          {statusInfo.label}
+                        </span>
+                      </div>
+                    )}
                 </div>
 
-                {/* Actions */}
-                <div className="flex items-center justify-between">
-                  <span className="text-xs font-medium text-blue-600 sm:text-sm">
-                    View Details →
-                  </span>
-                  <div className="relative z-20 flex items-center space-x-1 sm:space-x-2">
-                    {project.youtubeUrl && (
-                      <a
-                        href={project.youtubeUrl}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="p-1 text-gray-400 transition-colors hover:text-red-600"
-                        onClick={(e) => e.stopPropagation()}
-                        aria-label="View on YouTube"
-                      >
-                        <Youtube className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
-                      </a>
-                    )}
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        void handleDeleteProject(project.id);
-                      }}
-                      disabled={deletingProject === project.id}
-                      className="p-1 text-gray-400 transition-colors hover:text-red-600 disabled:opacity-50"
-                      aria-label="Delete project"
-                    >
-                      {deletingProject === project.id ? (
-                        <div className="h-3.5 w-3.5 animate-spin rounded-full border-b-2 border-red-600 sm:h-4 sm:w-4" />
-                      ) : (
-                        <Trash2 className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
+                {/* Content */}
+                <div className="p-3 sm:p-4">
+                  <div className="mb-2">
+                    <InlineEdit
+                      value={
+                        project.displayName ??
+                        `Project ${project.id.slice(0, 8)}`
+                      }
+                      onSave={(newName) =>
+                        handleProjectRename(project.id, newName)
+                      }
+                      placeholder="Project name"
+                      className="line-clamp-2 text-sm font-medium text-gray-900 sm:text-base"
+                      variant="default"
+                    />
+                  </div>
+                  <div className="mb-3 flex items-center text-xs text-gray-500 sm:text-sm">
+                    <span>{project.chunksCount} chunks</span>
+                    <span className="mx-2">•</span>
+                    <span>
+                      {new Date(project.createdAt).toLocaleDateString()}
+                    </span>
+                  </div>
+
+                  {/* Progress */}
+                  <div className="mb-3 sm:mb-4">
+                    <div className="mb-1 flex items-center justify-between">
+                      <span className="text-xs text-gray-500">
+                        {project.completedChunks || 0} of {project.chunksCount}{" "}
+                        watched
+                      </span>
+                      <span className="text-xs text-gray-500">
+                        {Math.round(
+                          ((project.completedChunks || 0) /
+                            (project.chunksCount || 1)) *
+                            100,
+                        )}
+                        % watched
+                      </span>
+                    </div>
+                    <div className="h-1.5 w-full rounded-full bg-gray-200 sm:h-2">
+                      <div
+                        className="h-1.5 rounded-full bg-purple-600 transition-all duration-200 sm:h-2"
+                        style={{
+                          width: `${Math.round(((project.completedChunks || 0) / (project.chunksCount || 1)) * 100)}%`,
+                        }}
+                      />
+                    </div>
+                  </div>
+
+                  {/* Tracks */}
+                  <div
+                    className="relative z-20 mb-3 sm:mb-4"
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    <ProjectTracksDisplay
+                      projectId={project.id}
+                      maxDisplay={2}
+                      showAddButton={true}
+                      onAddClick={() =>
+                        setTrackModalProject({
+                          id: project.id,
+                          name: project.displayName ?? "Project",
+                        })
+                      }
+                    />
+                  </div>
+
+                  {/* Actions */}
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-medium text-blue-600 sm:text-sm">
+                      View Details →
+                    </span>
+                    <div className="relative z-20 flex items-center space-x-1 sm:space-x-2">
+                      {project.youtubeUrl && (
+                        <a
+                          href={project.youtubeUrl}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="p-1 text-gray-400 transition-colors hover:text-red-600"
+                          onClick={(e) => e.stopPropagation()}
+                          aria-label="View on YouTube"
+                        >
+                          <Youtube className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
+                        </a>
                       )}
-                    </button>
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                          <button
+                            className="p-1 text-gray-400 transition-colors hover:text-gray-600"
+                            onClick={(e) => e.stopPropagation()}
+                            aria-label="More options"
+                          >
+                            <MoreHorizontal className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
+                          </button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end">
+                          <DropdownMenuItem
+                            onClick={() =>
+                              setTrackModalProject({
+                                id: project.id,
+                                name: project.displayName ?? "Project",
+                              })
+                            }
+                          >
+                            <Route className="mr-2 h-4 w-4" />
+                            Add to Track
+                          </DropdownMenuItem>
+                          <DropdownMenuItem
+                            onClick={() => handleDeleteProject(project.id)}
+                            className="text-red-600 focus:text-red-600"
+                            disabled={deletingProject === project.id}
+                          >
+                            <Trash2 className="mr-2 h-4 w-4" />
+                            {deletingProject === project.id
+                              ? "Deleting..."
+                              : "Delete"}
+                          </DropdownMenuItem>
+                        </DropdownMenuContent>
+                      </DropdownMenu>
+                    </div>
                   </div>
                 </div>
-              </div>
-            </motion.div>
-          );
-        })}
+              </motion.div>
+            );
+          })}
+        </div>
       </div>
     );
   }
 
   // List Layout - Mobile optimized
   return (
-    <div className="space-y-3 sm:space-y-4">
-      {filteredProjects.map((project, index) => {
-        const statusInfo = getStatusBadge(
-          project.status,
-          project.progressPercentage,
-        );
-        return (
-          <motion.div
-            key={project.id}
-            initial={{ opacity: 0, x: -10 }}
-            animate={{ opacity: 1, x: 0 }}
-            transition={{
-              duration: 0.2,
-              delay: index * 0.03,
-              ease: [0.4, 0, 0.2, 1],
-            }}
-            className="group relative rounded-lg border border-gray-200 bg-white p-3 transition-all duration-200 hover:border-gray-300 hover:shadow-md sm:p-4"
-          >
-            <Link
-              href={`/dashboard/projects/${project.id}`}
-              className="absolute inset-0 z-10"
-              aria-label={`View project: ${project.displayName}`}
-            />
+    <div>
+      {/* Select All Checkbox */}
+      {isSelectionMode && (
+        <SelectAllCheckbox
+          availableItems={filteredProjects.map((project) => project.id)}
+          label="Select all projects"
+        />
+      )}
 
-            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:gap-4">
-              {/* Thumbnail - Mobile optimized */}
-              <div className="relative h-24 w-full overflow-hidden rounded-lg bg-gray-100 sm:h-20 sm:w-32 sm:flex-shrink-0">
-                <ThumbnailImage
-                  thumbnailUrl={project.thumbnailUrl}
-                  alt={project.displayName ?? "Project thumbnail"}
-                  className="h-full w-full object-cover"
-                />
-              </div>
+      <div className="space-y-3 sm:space-y-4">
+        {filteredProjects.map((project, index) => {
+          const statusInfo = getProcessingStatusBadge(
+            project.status,
+            project.progressPercentage,
+          );
+          return (
+            <motion.div
+              key={project.id}
+              initial={{ opacity: 0, x: -10 }}
+              animate={{ opacity: 1, x: 0 }}
+              transition={{
+                duration: 0.2,
+                delay: index * 0.03,
+                ease: [0.4, 0, 0.2, 1],
+              }}
+              className="group relative rounded-lg border border-gray-200 bg-white p-3 transition-all duration-200 hover:border-gray-300 hover:shadow-md sm:p-4"
+            >
+              {/* Selection Checkbox */}
+              {isSelectionMode && (
+                <div
+                  className="absolute top-3 left-3 z-20"
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  <Checkbox
+                    checked={isItemSelected(project.id)}
+                    onCheckedChange={() => toggleItemSelection(project.id)}
+                    className="h-5 w-5"
+                  />
+                </div>
+              )}
 
-              {/* Content - Mobile optimized */}
-              <div className="flex-1">
-                <div className="mb-2 flex flex-col gap-2 sm:mb-0 sm:flex-row sm:items-start sm:justify-between">
-                  <div className="flex-1">
-                    <h3 className="text-sm font-medium text-gray-900 group-hover:text-blue-600 sm:text-base">
-                      {project.displayName}
-                    </h3>
-                    <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-gray-500 sm:text-sm">
-                      <span className="flex items-center">
-                        <Play className="mr-1 h-3 w-3 sm:h-3.5 sm:w-3.5" />
-                        {project.chunksCount} chunks
+              <Link
+                href={`/dashboard/projects/${project.id}`}
+                className={cn(
+                  "absolute inset-0 z-10",
+                  isSelectionMode && "pointer-events-none",
+                )}
+                aria-label={`View project: ${project.displayName}`}
+              />
+
+              <div
+                className={cn(
+                  "flex flex-col gap-3 sm:flex-row sm:items-center sm:gap-4",
+                  isSelectionMode && "ml-8",
+                )}
+              >
+                {/* Thumbnail - Mobile optimized */}
+                <div className="relative h-24 w-full overflow-hidden rounded-lg bg-gray-100 sm:h-20 sm:w-32 sm:flex-shrink-0">
+                  <ThumbnailImage
+                    thumbnailUrl={project.thumbnailUrl}
+                    alt={project.displayName ?? "Project thumbnail"}
+                    className="h-full w-full object-cover"
+                  />
+                </div>
+
+                {/* Content - Mobile optimized */}
+                <div className="flex-1">
+                  <div className="mb-2 flex flex-col gap-2 sm:mb-0 sm:flex-row sm:items-start sm:justify-between">
+                    <div className="flex-1">
+                      <InlineEdit
+                        value={
+                          project.displayName ??
+                          `Project ${project.id.slice(0, 8)}`
+                        }
+                        onSave={(newName) =>
+                          handleProjectRename(project.id, newName)
+                        }
+                        placeholder="Project name"
+                        className="text-sm font-medium text-gray-900 group-hover:text-blue-600 sm:text-base"
+                        variant="default"
+                      />
+                      <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-gray-500 sm:text-sm">
+                        <span className="flex items-center">
+                          <Play className="mr-1 h-3 w-3 sm:h-3.5 sm:w-3.5" />
+                          {project.chunksCount} chunks
+                        </span>
+                        <span className="flex items-center">
+                          <Clock className="mr-1 h-3 w-3 sm:h-3.5 sm:w-3.5" />
+                          {project.totalDuration}
+                        </span>
+                        <span className="flex items-center">
+                          <Calendar className="mr-1 h-3 w-3 sm:h-3.5 sm:w-3.5" />
+                          {new Date(project.createdAt).toLocaleDateString()}
+                        </span>
+                      </div>
+                    </div>
+
+                    {/* Status Badge - Only show while processing */}
+                    {project.status !== "processed" &&
+                      project.progressPercentage < 100 && (
+                        <span
+                          className={cn(
+                            "inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium sm:px-3 sm:py-1",
+                            statusInfo.class,
+                          )}
+                        >
+                          {project.status === "processing" && (
+                            <div className="mr-1 h-2 w-2 animate-spin rounded-full border border-current border-t-transparent" />
+                          )}
+                          {statusInfo.label}
+                        </span>
+                      )}
+                  </div>
+
+                  {/* Progress Bar - Mobile optimized */}
+                  <div className="mt-3">
+                    <div className="flex items-center justify-between text-xs text-gray-500">
+                      <span>
+                        {project.completedChunks || 0} of {project.chunksCount}{" "}
+                        watched
                       </span>
-                      <span className="flex items-center">
-                        <Clock className="mr-1 h-3 w-3 sm:h-3.5 sm:w-3.5" />
-                        {project.totalDuration}
+                      <span>
+                        {Math.round(
+                          ((project.completedChunks || 0) /
+                            (project.chunksCount || 1)) *
+                            100,
+                        )}
+                        % watched
                       </span>
-                      <span className="flex items-center">
-                        <Calendar className="mr-1 h-3 w-3 sm:h-3.5 sm:w-3.5" />
-                        {new Date(project.createdAt).toLocaleDateString()}
-                      </span>
+                    </div>
+                    <div className="mt-1 h-1.5 w-full rounded-full bg-gray-200 sm:h-2">
+                      <div
+                        className="h-1.5 rounded-full bg-purple-600 transition-all duration-200 sm:h-2"
+                        style={{
+                          width: `${Math.round(((project.completedChunks || 0) / (project.chunksCount || 1)) * 100)}%`,
+                        }}
+                      />
                     </div>
                   </div>
 
-                  {/* Status Badge - Mobile optimized */}
-                  <span
-                    className={cn(
-                      "inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium sm:px-3 sm:py-1",
-                      statusInfo.class,
-                    )}
+                  {/* Tracks - Mobile optimized */}
+                  <div
+                    className="relative z-20 mt-3"
+                    onClick={(e) => e.stopPropagation()}
                   >
-                    {statusInfo.label}
-                  </span>
-                </div>
-
-                {/* Progress Bar - Mobile optimized */}
-                <div className="mt-3">
-                  <div className="flex items-center justify-between text-xs text-gray-500">
-                    <span>
-                      {project.completedChunks} of {project.chunksCount}{" "}
-                      completed
-                    </span>
-                    <span>{Math.round(project.progressPercentage)}%</span>
-                  </div>
-                  <div className="mt-1 h-1.5 w-full rounded-full bg-gray-200 sm:h-2">
-                    <div
-                      className="h-1.5 rounded-full bg-blue-600 transition-all duration-200 sm:h-2"
-                      style={{ width: `${project.progressPercentage}%` }}
+                    <ProjectTracksDisplay
+                      projectId={project.id}
+                      maxDisplay={3}
+                      showAddButton={true}
+                      onAddClick={() =>
+                        setTrackModalProject({
+                          id: project.id,
+                          name: project.displayName ?? "Project",
+                        })
+                      }
                     />
                   </div>
                 </div>
-              </div>
 
-              {/* Actions - Mobile optimized */}
-              <div className="relative z-20 flex items-center gap-2 sm:flex-col sm:gap-1">
-                {project.youtubeUrl && (
-                  <a
-                    href={project.youtubeUrl}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="rounded-lg p-2 text-gray-400 transition-colors hover:bg-gray-100 hover:text-red-600"
-                    onClick={(e) => e.stopPropagation()}
-                    aria-label="View on YouTube"
-                  >
-                    <Youtube className="h-4 w-4 sm:h-5 sm:w-5" />
-                  </a>
-                )}
-                <button
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    void handleDeleteProject(project.id);
-                  }}
-                  disabled={deletingProject === project.id}
-                  className="rounded-lg p-2 text-gray-400 transition-colors hover:bg-gray-100 hover:text-red-600 disabled:opacity-50"
-                  aria-label="Delete project"
-                >
-                  {deletingProject === project.id ? (
-                    <div className="h-4 w-4 animate-spin rounded-full border-b-2 border-red-600 sm:h-5 sm:w-5" />
-                  ) : (
-                    <Trash2 className="h-4 w-4 sm:h-5 sm:w-5" />
+                {/* Actions - Mobile optimized */}
+                <div className="relative z-20 flex items-center gap-2 sm:flex-col sm:gap-1">
+                  {project.youtubeUrl && (
+                    <a
+                      href={project.youtubeUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="rounded-lg p-2 text-gray-400 transition-colors hover:bg-gray-100 hover:text-red-600"
+                      onClick={(e) => e.stopPropagation()}
+                      aria-label="View on YouTube"
+                    >
+                      <Youtube className="h-4 w-4 sm:h-5 sm:w-5" />
+                    </a>
                   )}
-                </button>
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <button
+                        className="rounded-lg p-2 text-gray-400 transition-colors hover:bg-gray-100 hover:text-gray-600"
+                        onClick={(e) => e.stopPropagation()}
+                        aria-label="More options"
+                      >
+                        <MoreHorizontal className="h-4 w-4 sm:h-5 sm:w-5" />
+                      </button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="end">
+                      <DropdownMenuItem
+                        onClick={() =>
+                          setTrackModalProject({
+                            id: project.id,
+                            name: project.displayName ?? "Project",
+                          })
+                        }
+                      >
+                        <Route className="mr-2 h-4 w-4" />
+                        Add to Track
+                      </DropdownMenuItem>
+                      <DropdownMenuItem
+                        onClick={() => handleDeleteProject(project.id)}
+                        className="text-red-600 focus:text-red-600"
+                        disabled={deletingProject === project.id}
+                      >
+                        <Trash2 className="mr-2 h-4 w-4" />
+                        {deletingProject === project.id
+                          ? "Deleting..."
+                          : "Delete"}
+                      </DropdownMenuItem>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                </div>
               </div>
-            </div>
-          </motion.div>
-        );
-      })}
+            </motion.div>
+          );
+        })}
+      </div>
+
+      {/* Add Project to Track Modal */}
+      {trackModalProject && (
+        <AddProjectToTrackModal
+          isOpen={!!trackModalProject}
+          onClose={() => setTrackModalProject(null)}
+          projectId={trackModalProject.id}
+          projectName={trackModalProject.name}
+        />
+      )}
     </div>
   );
 }

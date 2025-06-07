@@ -13,9 +13,12 @@ import {
   NotebookText,
   ChevronRight,
   RotateCw,
+  RotateCcw,
 } from "lucide-react";
 import { ThumbnailImage } from "~/components/ui/thumbnail-image";
+import { ResetProgressModal } from "~/components/ui/reset-progress-modal";
 import { motion } from "framer-motion";
+import { toast } from "sonner";
 
 interface ChunkCardProps {
   clip: ClipWithDetails;
@@ -32,6 +35,7 @@ export function ChunkCard({
 }: ChunkCardProps) {
   const router = useRouter();
   const [isUpdating, setIsUpdating] = useState(false);
+  const [isResetModalOpen, setIsResetModalOpen] = useState(false);
 
   const handleCompletionToggle = async (completed: boolean) => {
     setIsUpdating(true);
@@ -54,6 +58,36 @@ export function ChunkCard({
       // Optionally show a toast notification here
     } finally {
       setIsUpdating(false);
+    }
+  };
+
+  const handleResetProgress = async () => {
+    try {
+      const response = await fetch(`/api/clips/${clip.id}/reset`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+      });
+
+      if (!response.ok) {
+        const errorData = (await response.json().catch(() => ({}))) as {
+          message?: string;
+        };
+        throw new Error(errorData.message ?? "Failed to reset clip progress");
+      }
+
+      // Call the parent callback to update UI
+      onCompletionChange?.(clip.id, false);
+
+      toast.success("Clip progress reset successfully! 🎉");
+    } catch (error) {
+      console.error("Error resetting clip progress:", error);
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : "Failed to reset clip progress",
+      );
     }
   };
 
@@ -198,7 +232,7 @@ export function ChunkCard({
           {/* Completion date */}
           {clip.completedAt && (
             <p className="text-xs text-green-600">
-              Completed {new Date(clip.completedAt).toLocaleDateString()}
+              ✅ Watched {new Date(clip.completedAt).toLocaleDateString()}
             </p>
           )}
         </div>
@@ -233,23 +267,41 @@ export function ChunkCard({
             <ChevronRight className="h-3.5 w-3.5" />
           </button>
 
-          <button
-            onClick={(e) => {
-              e.stopPropagation();
-              e.preventDefault();
-              // TODO: Implement view notes functionality
-              console.log("View notes for chunk", clip.id);
-            }}
-            className={cn(
-              "flex items-center gap-1 text-xs transition-colors",
-              clip.isCompleted
-                ? "text-green-600 hover:text-green-700"
-                : "text-gray-500 hover:text-gray-700",
+          <div className="flex items-center gap-1">
+            {/* Reset button - only show if there's progress to reset */}
+            {(clip.watchTime > 0 || clip.isCompleted) && (
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  e.preventDefault();
+                  setIsResetModalOpen(true);
+                }}
+                className="flex items-center gap-1 text-xs text-purple-600 transition-colors hover:text-purple-700"
+                title="Reset progress"
+              >
+                <RotateCcw className="h-3.5 w-3.5" />
+                <span className="hidden sm:inline">Reset</span>
+              </button>
             )}
-          >
-            <NotebookText className="h-3.5 w-3.5" />
-            <span className="hidden sm:inline">Notes</span>
-          </button>
+
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                e.preventDefault();
+                // TODO: Implement view notes functionality
+                console.log("View notes for chunk", clip.id);
+              }}
+              className={cn(
+                "flex items-center gap-1 text-xs transition-colors",
+                clip.isCompleted
+                  ? "text-green-600 hover:text-green-700"
+                  : "text-gray-500 hover:text-gray-700",
+              )}
+            >
+              <NotebookText className="h-3.5 w-3.5" />
+              <span className="hidden sm:inline">Notes</span>
+            </button>
+          </div>
         </div>
       </div>
 
@@ -260,6 +312,17 @@ export function ChunkCard({
           <div className="absolute bottom-2 left-4 h-0.5 w-0.5 animate-ping rounded-full bg-green-300 delay-500" />
         </div>
       )}
+
+      {/* Reset Progress Modal */}
+      <ResetProgressModal
+        isOpen={isResetModalOpen}
+        onClose={() => setIsResetModalOpen(false)}
+        onConfirm={handleResetProgress}
+        title="Reset Chunk Progress"
+        description="This will reset your viewing progress for this chunk. Your watch time and completion status will be cleared."
+        itemType="clip"
+        itemName={`Chunk ${index + 1}`}
+      />
     </motion.div>
   );
 }

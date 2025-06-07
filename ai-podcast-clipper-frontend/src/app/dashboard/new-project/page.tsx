@@ -534,11 +534,11 @@ export default function NewProjectPage() {
       });
 
       console.log("=== PROCESSING INITIATED ===");
-      console.log("Redirecting to dashboard to view progress...");
+      console.log("Redirecting to project page to view real-time progress...");
 
-      // Wait a moment to show completion message
+      // Wait a moment to show completion message then redirect to project page for real-time updates
       setTimeout(() => {
-        router.push("/dashboard");
+        router.push(`/dashboard/projects/${uploadedFileId}`);
       }, 2000);
     } catch (error) {
       console.error("=== ERROR IN FILE PROCESSING ===");

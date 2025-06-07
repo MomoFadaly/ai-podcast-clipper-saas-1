@@ -7,6 +7,8 @@ import {
   type ProjectWithStats,
   type DashboardStats,
 } from "~/actions/projects";
+import { useRealTimeStatus } from "~/hooks/use-real-time-status";
+import { RealTimeProjectCard } from "~/components/real-time-project-card";
 
 export default function DashboardPage() {
   const [recentProjects, setRecentProjects] = useState<ProjectWithStats[]>([]);
@@ -56,16 +58,19 @@ export default function DashboardPage() {
     }
   };
 
-  const getStatusLabel = (status: string, progressPercentage: number) => {
+  const getProcessingStatusLabel = (
+    status: string,
+    progressPercentage: number,
+  ) => {
     if (status === "processed" || progressPercentage === 100) {
-      return "Completed";
+      return "Ready";
     } else if (
       status === "processing" ||
       (progressPercentage > 0 && progressPercentage < 100)
     ) {
-      return "In Progress";
-    } else if (status === "queued") {
       return "Processing";
+    } else if (status === "queued") {
+      return "Queued";
     } else {
       return "Pending";
     }
@@ -369,75 +374,30 @@ export default function DashboardPage() {
           ) : (
             <div className="space-y-4">
               {recentProjects.map((project) => (
-                <div
+                <RealTimeProjectCard
                   key={project.id}
-                  className="rounded-lg border border-gray-200 p-4 transition-shadow hover:shadow-sm"
-                >
-                  <div className="flex items-center justify-between">
-                    <div className="flex-1">
-                      <h3 className="mb-2 font-medium text-gray-900">
-                        {project.displayName}
-                      </h3>
-                      <div className="flex items-center space-x-4 text-sm text-gray-500">
-                        <span>{project.chunksCount} chunks</span>
-                        <span>•</span>
-                        <span>{project.totalDuration}</span>
-                        <span>•</span>
-                        <span>{project.createdAt.toLocaleDateString()}</span>
-                      </div>
+                  project={project}
+                  onStatusUpdate={(projectId, newStatus) => {
+                    // Update the project in our local state
+                    setRecentProjects((prev) =>
+                      prev.map((p) =>
+                        p.id === projectId ? { ...p, status: newStatus } : p,
+                      ),
+                    );
 
-                      {/* Progress Bar */}
-                      <div className="mt-3">
-                        <div className="mb-1 flex items-center justify-between">
-                          <span className="text-xs text-gray-500">
-                            {project.completedChunks} of {project.chunksCount}{" "}
-                            chunks completed
-                          </span>
-                          <span className="text-xs text-gray-500">
-                            {Math.round(project.progressPercentage)}%
-                          </span>
-                        </div>
-                        <div className="h-2 w-full rounded-full bg-gray-200">
-                          <div
-                            className="h-2 rounded-full bg-blue-600 transition-all"
-                            style={{
-                              width: `${project.progressPercentage}%`,
-                            }}
-                          ></div>
-                        </div>
-                      </div>
-                    </div>
-
-                    <div className="ml-4 flex items-center space-x-2">
-                      <span
-                        className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium ${getStatusBadge(project.status, project.progressPercentage)}`}
-                      >
-                        {getStatusLabel(
-                          project.status,
-                          project.progressPercentage,
-                        )}
-                      </span>
-                      <Link
-                        href={`/dashboard/projects/${project.id}`}
-                        className="text-blue-600 hover:text-blue-800"
-                      >
-                        <svg
-                          className="h-5 w-5"
-                          fill="none"
-                          stroke="currentColor"
-                          viewBox="0 0 24 24"
-                        >
-                          <path
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                            strokeWidth={2}
-                            d="M9 5l7 7-7 7"
-                          />
-                        </svg>
-                      </Link>
-                    </div>
-                  </div>
-                </div>
+                    // Update stats when status changes
+                    if (newStatus === "processed") {
+                      setStats((prev) => ({
+                        ...prev,
+                        completedProjects: prev.completedProjects + 1,
+                        processingProjects: Math.max(
+                          0,
+                          prev.processingProjects - 1,
+                        ),
+                      }));
+                    }
+                  }}
+                />
               ))}
             </div>
           )}
