@@ -25,6 +25,10 @@ jobs:
       working-directory: ./yaumy-frontend
       run: npm ci
     
+    - name: Generate Prisma Client
+      working-directory: ./yaumy-frontend
+      run: npx prisma generate
+    
     - name: Run TypeScript check
       working-directory: ./yaumy-frontend
       run: npm run typecheck

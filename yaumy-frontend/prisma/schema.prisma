@@ -1,0 +1,382 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// Enums
+enum AccessLevel {
+  PRIVATE
+  EMAIL_SHARED
+  PUBLIC
+  GROUP_SHARED
+}
+
+enum Permission {
+  VIEW
+  COPY
+  COLLABORATE
+}
+
+enum AiProvider {
+  OPENAI
+  PERPLEXITY
+  ANTHROPIC
+}
+
+enum AiAlertType {
+  USAGE_WARNING
+  USAGE_CRITICAL
+  LIMIT_EXCEEDED
+}
+
+enum ContentType {
+  VIDEO
+  AUDIO
+  TEXT
+  PDF
+}
+
+enum LayoutCategory {
+  FOCUS
+  LEARNING
+  ANALYSIS
+  CREATION
+}
+
+enum LayoutPresetType {
+  SYSTEM
+  USER_CUSTOM
+}
+
+enum FeedbackStatus {
+  OPEN
+  IN_PROGRESS
+  IN_REVIEW
+  TESTING
+  COMPLETED
+  CLOSED
+  DUPLICATE
+  WONT_FIX
+  NEEDS_INFO
+}
+
+enum AffiliateStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  SUSPENDED
+}
+
+// Models
+model User {
+  id               String   @id @default(cuid())
+  email            String   @unique
+  name             String?
+  role             String?
+  plan             String?
+  subscriptionPlan String?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  // Relations
+  uploadedFiles    UploadedFile[]
+  tracks           Track[]
+  clips            Clip[]
+  notifications    Notification[]
+  feedbackRequests FeedbackRequest[]
+  affiliate        Affiliate?
+  s3StorageUsage   S3StorageUsage?
+  aiUsageLimit     UserAiUsageLimit?
+  projectShares    ProjectShare[]     @relation("ProjectOwner")
+  trackShares      TrackShare[]       @relation("TrackOwner")
+}
+
+model UploadedFile {
+  id          String   @id @default(cuid())
+  displayName String
+  userId      String
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  // Relations
+  user    User           @relation(fields: [userId], references: [id])
+  clips   Clip[]
+  shares  ProjectShare[] @relation("SharedProject")
+}
+
+model Track {
+  id        String   @id @default(cuid())
+  name      String
+  userId    String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relations
+  user   User         @relation(fields: [userId], references: [id])
+  shares TrackShare[] @relation("SharedTrack")
+}
+
+model Clip {
+  id             String   @id @default(cuid())
+  uploadedFileId String
+  userId         String
+  chunks         Json?
+  createdAt      DateTime @default(now())
+
+  // Relations
+  user         User         @relation(fields: [userId], references: [id])
+  uploadedFile UploadedFile @relation(fields: [uploadedFileId], references: [id])
+}
+
+model Notification {
+  id        String    @id @default(cuid())
+  userId    String
+  type      String
+  title     String
+  message   String
+  actionUrl String?
+  metadata  Json?
+  read      Boolean   @default(false)
+  readAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  // Relations
+  user User @relation(fields: [userId], references: [id])
+}
+
+model FeedbackRequest {
+  id        String         @id @default(cuid())
+  userId    String
+  title     String
+  type      String
+  status    FeedbackStatus @default(OPEN)
+  priority  String?
+  createdAt DateTime       @default(now())
+
+  // Relations
+  user User @relation(fields: [userId], references: [id])
+}
+
+model Affiliate {
+  id        String          @id @default(cuid())
+  userId    String          @unique
+  status    AffiliateStatus @default(PENDING)
+  notes     String?
+  createdAt DateTime        @default(now())
+
+  // Relations
+  user      User                @relation(fields: [userId], references: [id])
+  referrals AffiliateReferral[]
+}
+
+model AffiliateReferral {
+  id               String   @id @default(cuid())
+  affiliateId      String
+  ipAddress        String?
+  fingerprint      String?
+  status           String
+  firstTouchAt     DateTime @default(now())
+  firstPaymentAt   DateTime?
+  geoInfo          Json?
+  isSuspicious     Boolean  @default(false)
+  suspiciousReason String?
+
+  // Relations
+  affiliate Affiliate @relation(fields: [affiliateId], references: [id])
+}
+
+model AnalyticsSession {
+  sessionId String @id @default(cuid())
+  userId    String
+}
+
+model LayoutPreset {
+  id                    String           @id @default(cuid())
+  name                  String
+  description           String?
+  presetType            LayoutPresetType @default(SYSTEM)
+  category              LayoutCategory?
+  supportedContentTypes String[]
+  zoneConfig            Json?
+  panelConfig           Json?
+  visiblePanels         String[]
+  panelGroups           Json?
+  desktopConfig         Json?
+  mobileConfig          Json?
+  tabletConfig          Json?
+  largeConfig           Json?
+  ultrawideConfig       Json?
+  isDefault             Boolean          @default(false)
+  isPublic              Boolean          @default(true)
+  useCase               String?
+  difficulty            String?
+  isResponsive          Boolean          @default(true)
+  createdBy             String?
+  usageCount            Int              @default(0)
+  createdAt             DateTime         @default(now())
+  updatedAt             DateTime         @updatedAt
+}
+
+model S3FileRecord {
+  s3Key        String    @id
+  userId       String
+  bucket       String
+  fileName     String
+  fileType     String
+  contentType  String
+  sizeBytes    BigInt
+  projectId    String?
+  clipId       String?
+  uploadedAt   DateTime  @default(now())
+  lastAccessed DateTime?
+}
+
+model S3StorageUsage {
+  userId             String   @id
+  totalBytes         BigInt   @default(0)
+  fileBytes          BigInt   @default(0)
+  chunkBytes         BigInt   @default(0)
+  thumbnailBytes     BigInt   @default(0)
+  otherBytes         BigInt   @default(0)
+  totalFiles         Int      @default(0)
+  fileCount          Int      @default(0)
+  chunkCount         Int      @default(0)
+  thumbnailCount     Int      @default(0)
+  monthlyStorageCost Float    @default(0)
+  monthlyTransferCost Float   @default(0)
+  totalMonthlyCost   Float    @default(0)
+  lastCalculated     DateTime @default(now())
+
+  // Relations
+  user User @relation(fields: [userId], references: [id])
+}
+
+model S3UsageSnapshot {
+  id               String   @id @default(cuid())
+  userId           String
+  year             Int
+  month            Int
+  totalBytes       BigInt
+  fileBytes        BigInt
+  chunkBytes       BigInt
+  thumbnailBytes   BigInt
+  otherBytes       BigInt
+  totalFiles       Int
+  fileCount        Int
+  chunkCount       Int
+  thumbnailCount   Int
+  storageCost      Float
+  transferCost     Float
+  totalCost        Float
+  bytesTransferred BigInt   @default(0)
+  requestCount     Int      @default(0)
+  createdAt        DateTime @default(now())
+
+  @@unique([userId, year, month])
+}
+
+model AiApiUsage {
+  id               String     @id @default(cuid())
+  userId           String
+  provider         AiProvider
+  model            String
+  endpoint         String
+  promptTokens     Int        @default(0)
+  completionTokens Int        @default(0)
+  totalTokens      Int        @default(0)
+  cost             Float      @default(0)
+  metadata         Json?
+  createdAt        DateTime   @default(now())
+}
+
+model UserAiUsageLimit {
+  id              String   @id @default(cuid())
+  userId          String   @unique
+  monthlyLimitUsd Float    @default(10)
+  currentMonthUsd Float    @default(0)
+  resetAt         DateTime
+  isActive        Boolean  @default(true)
+
+  // Relations
+  user User @relation(fields: [userId], references: [id])
+}
+
+model AiUsageAlert {
+  id            String      @id @default(cuid())
+  userId        String
+  alertType     AiAlertType
+  threshold     Float
+  lastAlertedAt DateTime?
+}
+
+model AiCostConfiguration {
+  id              String     @id @default(cuid())
+  provider        AiProvider
+  model           String
+  inputCostPer1k  Float
+  outputCostPer1k Float
+  effectiveFrom   DateTime   @default(now())
+
+  @@unique([provider, model])
+}
+
+model ProjectShare {
+  id          String       @id @default(cuid())
+  projectId   String
+  ownerId     String
+  sharedWith  String?
+  accessLevel AccessLevel  @default(PRIVATE)
+  permissions Permission[]
+  shareToken  String?      @unique
+  isActive    Boolean      @default(true)
+  expiresAt   DateTime?
+  createdAt   DateTime     @default(now())
+
+  // Relations
+  project UploadedFile @relation("SharedProject", fields: [projectId], references: [id])
+  owner   User         @relation("ProjectOwner", fields: [ownerId], references: [id])
+  group   ShareGroup?  @relation(fields: [sharedWith], references: [id])
+}
+
+model TrackShare {
+  id          String       @id @default(cuid())
+  trackId     String
+  ownerId     String
+  sharedWith  String?
+  accessLevel AccessLevel  @default(PRIVATE)
+  permissions Permission[]
+  shareToken  String?      @unique
+  isActive    Boolean      @default(true)
+  expiresAt   DateTime?
+  createdAt   DateTime     @default(now())
+
+  // Relations
+  track Track       @relation("SharedTrack", fields: [trackId], references: [id])
+  owner User        @relation("TrackOwner", fields: [ownerId], references: [id])
+  group ShareGroup? @relation(fields: [sharedWith], references: [id])
+}
+
+model ShareGroup {
+  id            String         @id @default(cuid())
+  name          String
+  projectShares ProjectShare[]
+  trackShares   TrackShare[]
+  members       GroupMember[]
+}
+
+model GroupMember {
+  id      String @id @default(cuid())
+  groupId String
+  userId  String
+  role    String @default("member")
+  
+  // Relations
+  group ShareGroup @relation(fields: [groupId], references: [id])
+}
