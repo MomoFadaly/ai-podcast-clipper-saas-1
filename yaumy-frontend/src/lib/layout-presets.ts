@@ -5,8 +5,23 @@
  * Provides smart defaults and user-customizable layouts.
  */
 
-import { ContentType } from '~/components/panels/types';
-import type { DockZone, PanelGroup } from '~/types/adobe-layout';
+import type { ContentType } from '~/components/panels/types';
+import { ContentTypes } from './content-types';
+
+// Layout zone configuration
+export interface LayoutZoneConfig {
+  id: string;
+  orientation?: 'horizontal' | 'vertical';
+  children?: Array<{
+    type: 'panel-group' | 'zone';
+    id: string;
+    size: number;
+    panels?: string[];
+    activePanel?: string;
+    orientation?: 'horizontal' | 'vertical';
+    children?: any[];
+  }>;
+}
 
 /**
  * Layout preset definition
@@ -17,7 +32,7 @@ export interface LayoutPreset {
   description: string;
   supportedContentTypes: ContentType[];
   isDefault?: boolean;
-  zoneConfig: DockZone;
+  zoneConfig: LayoutZoneConfig;
   visiblePanels: string[];
   panelGroups: Record<string, {
     panels: string[];
@@ -39,7 +54,7 @@ export const LAYOUT_PRESETS: Record<string, LayoutPreset> = {
     id: 'video-focus',
     name: 'Video Focus',
     description: 'Large video player with minimal distractions for immersive viewing',
-    supportedContentTypes: [ContentType.VIDEO],
+    supportedContentTypes: [ContentTypes.VIDEO],
     isDefault: true,
     zoneConfig: {
       id: 'root',
@@ -83,7 +98,7 @@ export const LAYOUT_PRESETS: Record<string, LayoutPreset> = {
     id: 'video-study',
     name: 'Video Study Mode',
     description: 'Balanced layout with video, transcript, and notes for active learning',
-    supportedContentTypes: [ContentType.VIDEO],
+    supportedContentTypes: [ContentTypes.VIDEO],
     zoneConfig: {
       id: 'root',
       orientation: 'horizontal',
@@ -144,7 +159,7 @@ export const LAYOUT_PRESETS: Record<string, LayoutPreset> = {
     id: 'video-analysis',
     name: 'Video Analysis',
     description: 'Comprehensive layout with all panels for detailed content analysis',
-    supportedContentTypes: [ContentType.VIDEO],
+    supportedContentTypes: [ContentTypes.VIDEO],
     zoneConfig: {
       id: 'root',
       orientation: 'vertical',
@@ -224,7 +239,7 @@ export const LAYOUT_PRESETS: Record<string, LayoutPreset> = {
     id: 'audio-study',
     name: 'Audio Study Mode',
     description: 'Optimized layout for audio content with transcript and notes',
-    supportedContentTypes: [ContentType.AUDIO],
+    supportedContentTypes: [ContentTypes.AUDIO],
     isDefault: true,
     zoneConfig: {
       id: 'root',
@@ -286,7 +301,7 @@ export const LAYOUT_PRESETS: Record<string, LayoutPreset> = {
     id: 'audio-focus',
     name: 'Audio Focus',
     description: 'Minimal layout for distraction-free audio listening',
-    supportedContentTypes: [ContentType.AUDIO],
+    supportedContentTypes: [ContentTypes.AUDIO],
     zoneConfig: {
       id: 'root',
       orientation: 'vertical',
@@ -330,7 +345,7 @@ export const LAYOUT_PRESETS: Record<string, LayoutPreset> = {
     id: 'minimal',
     name: 'Minimal',
     description: 'Single panel layout for maximum focus',
-    supportedContentTypes: [ContentType.VIDEO, ContentType.AUDIO, ContentType.TEXT, ContentType.PDF],
+    supportedContentTypes: [ContentTypes.VIDEO, ContentTypes.AUDIO, ContentTypes.TEXT, ContentTypes.PDF],
     zoneConfig: {
       id: 'root',
       orientation: 'horizontal',
@@ -362,7 +377,7 @@ export const LAYOUT_PRESETS: Record<string, LayoutPreset> = {
     id: 'side-by-side',
     name: 'Side by Side',
     description: 'Two-panel layout for content and notes',
-    supportedContentTypes: [ContentType.VIDEO, ContentType.AUDIO, ContentType.TEXT, ContentType.PDF],
+    supportedContentTypes: [ContentTypes.VIDEO, ContentTypes.AUDIO, ContentTypes.TEXT, ContentTypes.PDF],
     zoneConfig: {
       id: 'root',
       orientation: 'horizontal',
@@ -426,8 +441,8 @@ export function getDefaultPreset(contentType: ContentType): LayoutPreset | null 
 /**
  * Get preset by ID
  */
-export function getPresetById(presetId: string): LayoutPreset | null {
-  return LAYOUT_PRESETS[presetId] || null;
+export function getPresetById(presetId: string): LayoutPreset | undefined {
+  return LAYOUT_PRESETS[presetId];
 }
 
 /**
@@ -462,12 +477,12 @@ export function adaptPresetForContentType(
  */
 function getCorePanel(contentType: ContentType): string {
   switch (contentType) {
-    case ContentType.VIDEO:
-    case ContentType.AUDIO:
+    case ContentTypes.VIDEO:
+    case ContentTypes.AUDIO:
       return 'media-player';
-    case ContentType.TEXT:
+    case ContentTypes.TEXT:
       return 'text-reader';
-    case ContentType.PDF:
+    case ContentTypes.PDF:
       return 'pdf-viewer';
     default:
       return 'media-player';
@@ -551,3 +566,18 @@ export function searchPresets(query: string): LayoutPreset[] {
     preset.metadata?.useCase.toLowerCase().includes(lowerQuery)
   );
 }
+
+/**
+ * Get the default preset for a content type
+ */
+export function getDefaultPresetForContentType(contentType: ContentType): LayoutPreset | undefined {
+  const presets = getPresetsForContentType(contentType);
+  
+  // First try to find one marked as default
+  const defaultPreset = presets.find(p => p.isDefault);
+  if (defaultPreset) return defaultPreset;
+  
+  // Otherwise return the first one
+  return presets[0];
+}
+

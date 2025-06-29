@@ -22,7 +22,8 @@ import {
   getDefaultResponsivePreset,
   type ResponsiveLayoutPreset,
 } from './responsive-layout-presets';
-import { ContentType } from '~/components/panels/types';
+import type { ContentType } from '~/components/panels/types';
+import { ContentTypes } from './content-types';
 
 /**
  * Device-aware resolved layout configuration
@@ -404,12 +405,12 @@ export class DeviceAwareLayoutService {
    */
   private getCorePanelsForContentType(contentType: ContentType): string[] {
     switch (contentType) {
-      case ContentType.VIDEO:
-      case ContentType.AUDIO:
+      case ContentTypes.VIDEO:
+      case ContentTypes.AUDIO:
         return ['media-player'];
-      case ContentType.TEXT:
+      case ContentTypes.TEXT:
         return ['text-reader'];
-      case ContentType.PDF:
+      case ContentTypes.PDF:
         return ['pdf-viewer'];
       default:
         return ['media-player'];
@@ -418,11 +419,11 @@ export class DeviceAwareLayoutService {
 
   private getAvailablePanelsForContentType(contentType: ContentType): string[] {
     switch (contentType) {
-      case ContentType.VIDEO:
-      case ContentType.AUDIO:
+      case ContentTypes.VIDEO:
+      case ContentTypes.AUDIO:
         return ['media-player', 'transcript', 'notes', 'timeline', 'navigation', 'progress'];
-      case ContentType.TEXT:
-      case ContentType.PDF:
+      case ContentTypes.TEXT:
+      case ContentTypes.PDF:
         return ['text-reader', 'notes', 'navigation', 'progress'];
       default:
         return ['media-player', 'notes'];

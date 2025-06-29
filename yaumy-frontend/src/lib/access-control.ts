@@ -11,6 +11,23 @@ export interface AccessCheckResult {
   reason?: string;
 }
 
+/**
+ * Helper function to get the highest permission level from an array of permissions
+ */
+export function getHighestPermission(permissions: Permission[]): Permission {
+  const permissionLevels = ["VIEW", "COPY", "COLLABORATE"] as const;
+  let highestIndex = -1;
+  
+  for (const permission of permissions) {
+    const index = permissionLevels.indexOf(permission as any);
+    if (index > highestIndex) {
+      highestIndex = index;
+    }
+  }
+  
+  return highestIndex >= 0 ? permissionLevels[highestIndex] : "VIEW";
+}
+
 export interface ContentAccess {
   id: string;
   name: string;
@@ -156,21 +173,34 @@ export async function checkAccess(
     }
 
     // Check if user has required permission level
-    const permissionLevels = ["VIEW", "COPY", "COLLABORATE"];
-    const userPermissionIndex = permissionLevels.indexOf(share.permissions);
+    const permissionLevels = ["VIEW", "COPY", "COLLABORATE"] as const;
     const requiredPermissionIndex = permissionLevels.indexOf(requiredPermission);
+    
+    // Find the highest permission level the user has
+    let userPermissionIndex = -1;
+    for (const permission of share.permissions) {
+      const index = permissionLevels.indexOf(permission as any);
+      if (index > userPermissionIndex) {
+        userPermissionIndex = index;
+      }
+    }
 
     if (userPermissionIndex < requiredPermissionIndex) {
       return {
         hasAccess: false,
         isOwner: false,
-        reason: `Insufficient permissions. Required: ${requiredPermission}, granted: ${share.permissions}`
+        reason: `Insufficient permissions. Required: ${requiredPermission}, granted: ${share.permissions.join(', ')}`
       };
     }
 
+    // Return the highest permission level the user has
+    const highestPermission = userPermissionIndex >= 0 
+      ? permissionLevels[userPermissionIndex] 
+      : "VIEW" as Permission;
+    
     return {
       hasAccess: true,
-      permission: share.permissions,
+      permission: highestPermission,
       accessLevel: share.accessLevel,
       isOwner: false,
     };
@@ -180,7 +210,7 @@ export async function checkAccess(
     return {
       hasAccess: false,
       isOwner: false,
-      reason: "Error checking access permissions"
+      reason: "An error occurred while checking access"
     };
   }
 }
@@ -189,10 +219,17 @@ export async function checkAccess(
  * Get all projects accessible to a user (owned + shared)
  */
 export async function getUserAccessibleProjects(
-  userId: string,
+  userId?: string,
   includeShared = true
 ): Promise<ContentAccess[]> {
   try {
+    // If no userId provided, get from auth
+    if (!userId) {
+      const session = await auth();
+      userId = session?.user?.id;
+      if (!userId) return [];
+    }
+
     const accessibleContent: ContentAccess[] = [];
 
     // Get owned projects
@@ -268,7 +305,7 @@ export async function getUserAccessibleProjects(
         name: share.project.displayName || "Untitled Project",
         contentType: "project",
         accessLevel: share.accessLevel,
-        permission: share.permissions,
+        permission: getHighestPermission(share.permissions),
         isOwner: false,
         sharedBy: share.owner,
         sharedAt: share.createdAt,
@@ -367,7 +404,7 @@ export async function getUserAccessibleTracks(
         name: share.track.name,
         contentType: "track",
         accessLevel: share.accessLevel,
-        permission: share.permissions,
+        permission: getHighestPermission(share.permissions),
         isOwner: false,
         sharedBy: share.owner,
         sharedAt: share.createdAt,
@@ -473,7 +510,7 @@ export async function getContentByShareToken(
         name: projectShare.project.displayName || "Untitled Project",
         contentType: "project",
         accessLevel: projectShare.accessLevel,
-        permission: projectShare.permissions,
+        permission: getHighestPermission(projectShare.permissions),
         isOwner: false,
         sharedBy: projectShare.owner,
         sharedAt: projectShare.createdAt,
@@ -519,7 +556,7 @@ export async function getContentByShareToken(
         name: trackShare.track.name,
         contentType: "track",
         accessLevel: trackShare.accessLevel,
-        permission: trackShare.permissions,
+        permission: getHighestPermission(trackShare.permissions),
         isOwner: false,
         sharedBy: trackShare.owner,
         sharedAt: trackShare.createdAt,

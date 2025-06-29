@@ -6,15 +6,38 @@
  */
 
 import { Video, Headphones, FileText, File } from 'lucide-react';
-import { ContentType } from '~/components/panels/types';
-import type { ContentTypeDefinition } from '~/components/panels/types';
+import type { ContentType, ContentTypeDefinition } from '~/components/panels/types';
+
+// Content type constants
+export const ContentTypes = {
+  VIDEO: 'video' as ContentType,
+  AUDIO: 'audio' as ContentType,
+  TEXT: 'text' as ContentType,
+  PDF: 'pdf' as ContentType,
+} as const;
+
+// Extended content type definition
+interface ExtendedContentTypeDefinition extends ContentTypeDefinition {
+  name: string;
+  corePanels: string[];
+  availablePanels: string[];
+  defaultLayout: string;
+  features: {
+    hasTimeline: boolean;
+    hasChapters: boolean;
+    hasAnnotations: boolean;
+    hasSearch: boolean;
+    hasTranscript?: boolean;
+  };
+}
 
 /**
  * Content type registry with comprehensive definitions
  */
-export const CONTENT_TYPE_REGISTRY: Record<ContentType, ContentTypeDefinition> = {
-  VIDEO: {
-    id: ContentType.VIDEO,
+export const CONTENT_TYPE_REGISTRY: Record<string, ExtendedContentTypeDefinition> = {
+  video: {
+    id: ContentTypes.VIDEO,
+    label: 'Video',
     name: 'Video',
     icon: Video,
     corePanels: ['media-player'],
@@ -29,8 +52,9 @@ export const CONTENT_TYPE_REGISTRY: Record<ContentType, ContentTypeDefinition> =
     },
   },
 
-  AUDIO: {
-    id: ContentType.AUDIO,
+  audio: {
+    id: ContentTypes.AUDIO,
+    label: 'Audio',
     name: 'Audio',
     icon: Headphones,
     corePanels: ['media-player'],
@@ -45,8 +69,9 @@ export const CONTENT_TYPE_REGISTRY: Record<ContentType, ContentTypeDefinition> =
     },
   },
 
-  TEXT: {
-    id: ContentType.TEXT,
+  text: {
+    id: ContentTypes.TEXT,
+    label: 'Text',
     name: 'Text',
     icon: FileText,
     corePanels: ['text-reader'],
@@ -61,8 +86,9 @@ export const CONTENT_TYPE_REGISTRY: Record<ContentType, ContentTypeDefinition> =
     },
   },
 
-  PDF: {
-    id: ContentType.PDF,
+  pdf: {
+    id: ContentTypes.PDF,
+    label: 'PDF',
     name: 'PDF',
     icon: File,
     corePanels: ['pdf-viewer'],
@@ -85,7 +111,7 @@ export const CONTENT_TYPE_REGISTRY: Record<ContentType, ContentTypeDefinition> =
 /**
  * Get content type definition by ID
  */
-export function getContentTypeDefinition(contentType: ContentType): ContentTypeDefinition {
+export function getContentTypeDefinition(contentType: ContentType): ExtendedContentTypeDefinition {
   const definition = CONTENT_TYPE_REGISTRY[contentType];
   if (!definition) {
     throw new Error(`Unknown content type: ${contentType}`);
@@ -105,35 +131,35 @@ export function detectContentType(
   // Video extensions
   const videoExtensions = ['mp4', 'webm', 'ogg', 'avi', 'mov', 'wmv', 'flv', 'm4v'];
   if (videoExtensions.includes(extension) || mimeType?.startsWith('video/')) {
-    return ContentType.VIDEO;
+    return ContentTypes.VIDEO;
   }
   
   // Audio extensions
   const audioExtensions = ['mp3', 'wav', 'ogg', 'aac', 'm4a', 'flac', 'wma'];
   if (audioExtensions.includes(extension) || mimeType?.startsWith('audio/')) {
-    return ContentType.AUDIO;
+    return ContentTypes.AUDIO;
   }
   
   // PDF
   if (extension === 'pdf' || mimeType === 'application/pdf') {
-    return ContentType.PDF;
+    return ContentTypes.PDF;
   }
   
   // Text extensions
   const textExtensions = ['txt', 'md', 'markdown', 'doc', 'docx', 'rtf'];
   if (textExtensions.includes(extension) || mimeType?.startsWith('text/')) {
-    return ContentType.TEXT;
+    return ContentTypes.TEXT;
   }
   
   // Default fallback based on MIME type
   if (mimeType) {
-    if (mimeType.startsWith('video/')) return ContentType.VIDEO;
-    if (mimeType.startsWith('audio/')) return ContentType.AUDIO;
-    if (mimeType.startsWith('text/') || mimeType.includes('document')) return ContentType.TEXT;
+    if (mimeType.startsWith('video/')) return ContentTypes.VIDEO;
+    if (mimeType.startsWith('audio/')) return ContentTypes.AUDIO;
+    if (mimeType.startsWith('text/') || mimeType.includes('document')) return ContentTypes.TEXT;
   }
   
   // Ultimate fallback - assume video for unknown types
-  return ContentType.VIDEO;
+  return ContentTypes.VIDEO;
 }
 
 /**
@@ -141,16 +167,16 @@ export function detectContentType(
  */
 export function contentTypeSupportsFeature(
   contentType: ContentType, 
-  feature: keyof ContentTypeDefinition['features']
+  feature: keyof ExtendedContentTypeDefinition['features']
 ): boolean {
-  return getContentTypeDefinition(contentType).features[feature];
+  return getContentTypeDefinition(contentType).features[feature] ?? false;
 }
 
 /**
  * Get all content types that support a specific feature
  */
 export function getContentTypesByFeature(
-  feature: keyof ContentTypeDefinition['features']
+  feature: keyof ExtendedContentTypeDefinition['features']
 ): ContentType[] {
   return Object.values(CONTENT_TYPE_REGISTRY)
     .filter(def => def.features[feature])
@@ -215,4 +241,4 @@ export function getContentTypeCapabilities(contentType: ContentType) {
 /**
  * Re-export types for external use
  */
-export type { ContentType, ContentTypeDefinition };
+export type { ContentType, ContentTypeDefinition, ExtendedContentTypeDefinition };

@@ -195,7 +195,7 @@ export class FeatureFlags {
       }
       
       // Check roles
-      if (config.enabledForRoles?.includes(this.user.role)) {
+      if (this.user.role && config.enabledForRoles?.includes(this.user.role)) {
         return true;
       }
       

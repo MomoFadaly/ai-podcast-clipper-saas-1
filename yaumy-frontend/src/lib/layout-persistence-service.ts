@@ -246,7 +246,7 @@ export class LayoutPersistenceService {
     presetId: string | null
   ): Promise<{ success: boolean; error?: string }> {
     try {
-      const result = await setDefaultPreset(contentType.toUpperCase() as any, presetId);
+      const result = await setDefaultPreset(contentType.toUpperCase() as any, presetId || '');
       
       // Increment usage count if setting a preset
       if (presetId && result.success) {
@@ -328,9 +328,9 @@ export class LayoutPersistenceService {
 
       // Get user's custom presets if requested
       if (includeUserPresets) {
-        const userPresetsResult = await getUserLayoutPresets();
+        const userPresetsResult = await getUserLayoutPresets('current-user');
         const userPresets = (userPresetsResult.data || [])
-          .filter(preset => preset.supportedContentTypes.includes(contentType.toUpperCase() as any));
+          .filter(preset => preset.supportedContentTypes?.includes(contentType.toUpperCase() as any) ?? false);
         allPresets = [...allPresets, ...userPresets];
       }
 
@@ -361,7 +361,7 @@ export class LayoutPersistenceService {
     }
   ): Promise<void> {
     try {
-      await recordLayoutUsage(contentType.toUpperCase() as any, analytics);
+      await recordLayoutUsage(analytics.presetId || '');
     } catch (error) {
       console.error('Failed to record layout usage:', error);
       // Don't throw - analytics failure shouldn't break the app

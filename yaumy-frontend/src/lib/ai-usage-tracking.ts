@@ -80,7 +80,7 @@ export async function trackAiUsage({
         userId,
         provider,
         model,
-        endpoint,
+        endpoint: endpoint || 'unknown',
         promptTokens,
         completionTokens,
         totalTokens: promptTokens + completionTokens,
@@ -117,7 +117,7 @@ async function updateUserMonthlyUsage(userId: string, cost: number) {
     usageLimit = await db.userAiUsageLimit.create({
       data: {
         userId,
-        monthlyLimitUsd: null, // Unlimited by default
+        monthlyLimitUsd: 10.0, // Default limit $10/month
         currentMonthUsd: 0,
         resetAt: endOfMonth,
       },
@@ -382,12 +382,12 @@ export async function setUserAiUsageLimit(userId: string, monthlyLimitUsd: numbe
   return await db.userAiUsageLimit.upsert({
     where: { userId },
     update: {
-      monthlyLimitUsd,
+      monthlyLimitUsd: monthlyLimitUsd ?? 10.0,
       isActive: true,
     },
     create: {
       userId,
-      monthlyLimitUsd,
+      monthlyLimitUsd: monthlyLimitUsd ?? 10.0,
       currentMonthUsd: 0,
       resetAt: endOfMonth,
       isActive: true,
@@ -421,4 +421,107 @@ export async function createUserAiUsageAlerts(userId: string) {
       },
     });
   }
+}
+
+// Check user AI usage against limits
+export async function checkUserAiUsageLimit(userId: string) {
+  const limit = await db.userAiUsageLimit.findUnique({
+    where: { userId },
+  });
+
+  if (!limit) {
+    // Create default limit
+    const endOfMonth = new Date();
+    endOfMonth.setMonth(endOfMonth.getMonth() + 1);
+    endOfMonth.setDate(0);
+    endOfMonth.setHours(23, 59, 59, 999);
+
+    const newLimit = await db.userAiUsageLimit.create({
+      data: {
+        userId,
+        monthlyLimitUsd: 10.0,
+        currentMonthUsd: 0,
+        resetAt: endOfMonth,
+        isActive: true,
+      },
+    });
+
+    return {
+      allowed: true,
+      currentUsage: 0,
+      monthlyLimit: 10.0,
+      percentageUsed: 0,
+      resetAt: endOfMonth,
+    };
+  }
+
+  // Check if we need to reset
+  const now = new Date();
+  if (now > limit.resetAt) {
+    const endOfMonth = new Date();
+    endOfMonth.setMonth(endOfMonth.getMonth() + 1);
+    endOfMonth.setDate(0);
+    endOfMonth.setHours(23, 59, 59, 999);
+
+    await db.userAiUsageLimit.update({
+      where: { id: limit.id },
+      data: {
+        currentMonthUsd: 0,
+        resetAt: endOfMonth,
+      },
+    });
+
+    return {
+      allowed: true,
+      currentUsage: 0,
+      monthlyLimit: limit.monthlyLimitUsd,
+      percentageUsed: 0,
+      resetAt: endOfMonth,
+    };
+  }
+
+  // Check limit
+  const percentageUsed = (limit.currentMonthUsd / limit.monthlyLimitUsd) * 100;
+  const allowed = limit.isActive && limit.currentMonthUsd < limit.monthlyLimitUsd;
+
+  return {
+    allowed,
+    currentUsage: limit.currentMonthUsd,
+    monthlyLimit: limit.monthlyLimitUsd,
+    percentageUsed,
+    resetAt: limit.resetAt,
+    reason: allowed ? undefined : 'Monthly usage limit exceeded',
+  };
+}
+
+// Update AI cost configuration
+export async function updateAiCostConfiguration(params: {
+  provider: AiProvider;
+  model: string;
+  inputCostPer1k: number;
+  outputCostPer1k: number;
+  effectiveFrom?: Date;
+}) {
+  const effectiveFrom = params.effectiveFrom || new Date();
+  
+  return await db.aiCostConfiguration.upsert({
+    where: {
+      provider_model_effectiveFrom: {
+        provider: params.provider,
+        model: params.model,
+        effectiveFrom,
+      },
+    },
+    update: {
+      inputCostPer1k: params.inputCostPer1k,
+      outputCostPer1k: params.outputCostPer1k,
+    },
+    create: {
+      provider: params.provider,
+      model: params.model,
+      inputCostPer1k: params.inputCostPer1k,
+      outputCostPer1k: params.outputCostPer1k,
+      effectiveFrom,
+    },
+  });
 }

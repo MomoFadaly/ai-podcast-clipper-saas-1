@@ -314,6 +314,8 @@ model AiUsageAlert {
   alertType     AiAlertType
   threshold     Float
   lastAlertedAt DateTime?
+
+  @@unique([userId, alertType])
 }
 
 model AiCostConfiguration {
@@ -324,7 +326,7 @@ model AiCostConfiguration {
   outputCostPer1k Float
   effectiveFrom   DateTime   @default(now())
 
-  @@unique([provider, model])
+  @@unique([provider, model, effectiveFrom])
 }
 
 model ProjectShare {
