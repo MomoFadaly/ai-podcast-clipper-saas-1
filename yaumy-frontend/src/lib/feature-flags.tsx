@@ -4,6 +4,7 @@
  * Control feature rollout and A/B testing
  */
 
+import React from 'react';
 import { type User } from '~/stores/user-store';
 
 // Feature flag definitions

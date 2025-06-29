@@ -5,7 +5,7 @@
 
 import React from 'react';
 import { describe, it, expect } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { render } from '@testing-library/react';
 
 // Simple test component
 const TestComponent = ({ message }: { message: string }) => {
@@ -17,7 +17,7 @@ describe('Basic Component Tests', () => {
     const message = 'Hello, Testing!';
     render(<TestComponent message={message} />);
     
-    const element = screen.getByTestId('test-message');
+    const element = document.querySelector('[data-testid="test-message"]');
     expect(element).toBeInTheDocument();
     expect(element).toHaveTextContent(message);
   });
@@ -25,7 +25,7 @@ describe('Basic Component Tests', () => {
   it('should handle empty message', () => {
     render(<TestComponent message="" />);
     
-    const element = screen.getByTestId('test-message');
+    const element = document.querySelector('[data-testid="test-message"]');
     expect(element).toBeInTheDocument();
     expect(element).toHaveTextContent('');
   });
@@ -34,7 +34,7 @@ describe('Basic Component Tests', () => {
     const specialMessage = 'Test with éñçødîñg & symbols!';
     render(<TestComponent message={specialMessage} />);
     
-    const element = screen.getByTestId('test-message');
+    const element = document.querySelector('[data-testid="test-message"]');
     expect(element).toHaveTextContent(specialMessage);
   });
 });
