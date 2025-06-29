@@ -64,3 +64,8 @@ test-results/
 *.dll
 *.node
 **/venv/
+# Build artifacts and dependencies
+yaumy-frontend/node_modules/
+yaumy-frontend/.next/
+yaumy-frontend/dist/
+yaumy-frontend/coverage/
