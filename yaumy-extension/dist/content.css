@@ -1,0 +1,175 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html {
+    @apply antialiased;
+  }
+  
+  body {
+    @apply text-gray-900;
+  }
+  
+  /* Custom scrollbar */
+  ::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+  
+  ::-webkit-scrollbar-track {
+    @apply bg-gray-100;
+  }
+  
+  ::-webkit-scrollbar-thumb {
+    @apply bg-gray-300 rounded-full;
+  }
+  
+  ::-webkit-scrollbar-thumb:hover {
+    @apply bg-gray-400;
+  }
+}
+
+@layer components {
+  /* Buttons */
+  .btn-primary {
+    @apply bg-yaumy-500 text-white px-4 py-2 rounded-lg hover:bg-yaumy-600 transition-colors font-medium;
+  }
+  
+  .btn-secondary {
+    @apply bg-gray-100 text-gray-700 px-4 py-2 rounded-lg hover:bg-gray-200 transition-colors font-medium;
+  }
+  
+  .btn-ghost {
+    @apply text-gray-600 px-4 py-2 rounded-lg hover:bg-gray-100 transition-colors font-medium;
+  }
+  
+  /* Form inputs */
+  .input {
+    @apply px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-yaumy-500 focus:border-transparent transition-all;
+  }
+  
+  /* Cards */
+  .card {
+    @apply bg-white rounded-lg shadow-sm border border-gray-200 p-4;
+  }
+  
+  .card-hover {
+    @apply card hover:shadow-md transition-shadow cursor-pointer;
+  }
+}
+
+@layer utilities {
+  /* Animations */
+  .animate-slide-up {
+    animation: slideUp 0.3s ease-out;
+  }
+  
+  .animate-slide-down {
+    animation: slideDown 0.3s ease-out;
+  }
+  
+  @keyframes slideUp {
+    from {
+      transform: translateY(10px);
+      opacity: 0;
+    }
+    to {
+      transform: translateY(0);
+      opacity: 1;
+    }
+  }
+  
+  @keyframes slideDown {
+    from {
+      transform: translateY(-10px);
+      opacity: 0;
+    }
+    to {
+      transform: translateY(0);
+      opacity: 1;
+    }
+  }
+}
+/* Content script specific styles */
+
+/* Override to ensure our UI is always on top */
+#yaumy-extension-root {
+  position: fixed !important;
+  z-index: 2147483647 !important;
+}
+
+/* Floating capture button animation */
+@keyframes float {
+  0%, 100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-10px);
+  }
+}
+
+.yaumy-float {
+  animation: float 3s ease-in-out infinite;
+}
+
+/* Toast notifications */
+.yaumy-toast-enter {
+  animation: toastSlideIn 0.3s ease-out;
+}
+
+.yaumy-toast-exit {
+  animation: toastSlideOut 0.3s ease-in;
+}
+
+@keyframes toastSlideIn {
+  from {
+    transform: translateX(100%);
+    opacity: 0;
+  }
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
+}
+
+@keyframes toastSlideOut {
+  from {
+    transform: translateX(0);
+    opacity: 1;
+  }
+  to {
+    transform: translateX(100%);
+    opacity: 0;
+  }
+}
+
+/* Media overlay */
+.yaumy-media-overlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.8);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 9999;
+  opacity: 0;
+  transition: opacity 0.3s ease;
+}
+
+.yaumy-media-overlay:hover {
+  opacity: 1;
+}
+
+/* Selection highlight */
+.yaumy-selection-highlight {
+  background-color: rgba(14, 165, 233, 0.2);
+  border: 2px solid rgb(14, 165, 233);
+  border-radius: 4px;
+  pointer-events: none;
+  position: absolute;
+  z-index: 9998;
+}

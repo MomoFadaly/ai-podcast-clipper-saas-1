@@ -1,0 +1,83 @@
+name: Test and Deploy
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main, develop ]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+    
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '20'
+        cache: 'npm'
+        cache-dependency-path: 'yaumy-frontend/package-lock.json'
+    
+    - name: Install dependencies
+      working-directory: ./yaumy-frontend
+      run: npm ci
+    
+    - name: Run TypeScript check
+      working-directory: ./yaumy-frontend
+      run: npm run typecheck
+    
+    - name: Run ESLint
+      working-directory: ./yaumy-frontend
+      run: npm run lint
+    
+    - name: Run Tests
+      working-directory: ./yaumy-frontend
+      run: npm test
+      env:
+        NODE_ENV: test
+    
+    - name: Generate Coverage Report
+      working-directory: ./yaumy-frontend
+      run: npm test -- --coverage --reporter=verbose
+      env:
+        NODE_ENV: test
+    
+    - name: Upload Coverage
+      if: always()
+      uses: codecov/codecov-action@v4
+      with:
+        directory: ./yaumy-frontend/coverage
+        flags: frontend
+        name: yaumy-frontend-coverage
+        fail_ci_if_error: false
+    
+    - name: Upload Test Results
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: test-results
+        path: |
+          yaumy-frontend/test-results/
+          yaumy-frontend/coverage/
+    
+    - name: Build application
+      working-directory: ./yaumy-frontend
+      run: npm run build
+      env:
+        SKIP_ENV_VALIDATION: true
+
+  deploy:
+    needs: test
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    
+    steps:
+    - name: Deploy to Vercel
+      uses: amondnet/vercel-action@v25
+      with:
+        vercel-token: ${{ secrets.VERCEL_TOKEN }}
+        vercel-args: '--prod'
+        working-directory: ./yaumy-frontend
