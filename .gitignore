@@ -46,3 +46,36 @@ ai-podcast-clipper-backend/*.env
 ai-podcast-clipper-backend/.env
 ai-podcast-clipper-backend/.modal*
 ai-podcast-clipper-backend/brca1_analysis_plot.png
+# Next.js and build artifacts
+.next/
+out/
+dist/
+coverage/
+test-results/
+.cache/
+
+# Large files and dependencies
+**/node_modules/
+**/.next/
+**/coverage/
+**/test-results/
+**/dist/
+*.dylib
+*.dll
+*.node
+**/venv/
+# Build artifacts and dependencies
+yaumy-frontend/node_modules/
+yaumy-frontend/.next/
+yaumy-frontend/dist/
+yaumy-frontend/coverage/
+
+# Environment files with secrets
+yaumy-frontend/.env
+yaumy-frontend/.env.local
+yaumy-frontend/.env.production
+yaumy-frontend/.env.staging
+**/.env
+**/.env.local
+**/.env.production
+**/.env.staging
