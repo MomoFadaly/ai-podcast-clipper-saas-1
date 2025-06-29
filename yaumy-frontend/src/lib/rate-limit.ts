@@ -37,7 +37,7 @@ function getRateLimiter(key: string, config: RateLimitConfig) {
 
 // Get client identifier
 export async function getClientId(request: NextRequest): Promise<string> {
-  const headersList = headers();
+  const headersList = await headers();
   
   // Try to get from various sources
   const forwarded = headersList.get('x-forwarded-for');
