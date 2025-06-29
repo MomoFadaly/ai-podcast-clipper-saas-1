@@ -67,7 +67,7 @@ export const VIDEO_RESPONSIVE_PRESETS: ResponsiveLayoutPreset[] = [
     id: 'video-focus-responsive',
     name: 'Video Focus (Responsive)',
     description: 'Immersive video viewing optimized for each device',
-    supportedContentTypes: [ContentType.VIDEO],
+    supportedContentTypes: ['video'],
     category: 'focus',
     
     // Mobile: Single video with minimal UI
@@ -251,7 +251,7 @@ export const VIDEO_RESPONSIVE_PRESETS: ResponsiveLayoutPreset[] = [
     id: 'video-study-responsive',
     name: 'Video Study (Responsive)',
     description: 'Comprehensive video learning with transcript and notes',
-    supportedContentTypes: [ContentType.VIDEO],
+    supportedContentTypes: ['video'],
     category: 'learning',
     
     // Mobile: Tabbed interface
@@ -428,7 +428,7 @@ export const AUDIO_RESPONSIVE_PRESETS: ResponsiveLayoutPreset[] = [
     id: 'audio-focus-responsive',
     name: 'Audio Focus (Responsive)',
     description: 'Optimized audio listening experience',
-    supportedContentTypes: [ContentType.AUDIO],
+    supportedContentTypes: ['audio'],
     category: 'focus',
     
     // Mobile: Audio player with minimal UI

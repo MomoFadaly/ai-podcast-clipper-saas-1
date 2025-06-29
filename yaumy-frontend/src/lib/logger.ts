@@ -77,8 +77,9 @@ export const log = new Proxy(logger, {
   get(target, property, receiver) {
     const ctx = requestContext.getStore();
     
-    if (ctx && typeof target[property as keyof typeof target] === 'function') {
-      return new Proxy(target[property as keyof typeof target], {
+    const targetFn = target[property as keyof typeof target];
+    if (ctx && typeof targetFn === 'function') {
+      return new Proxy(targetFn as any, {
         apply(fn, thisArg, args) {
           // Add context to first argument if it's an object
           if (args[0] && typeof args[0] === 'object') {
@@ -190,10 +191,10 @@ export const loggers = {
 
 // Request context middleware
 export function withRequestContext<T>(
+  fn: () => T,
   requestId: string,
   userId?: string,
-  sessionId?: string,
-  fn: () => T
+  sessionId?: string
 ): T {
   return requestContext.run({ requestId, userId, sessionId }, fn);
 }

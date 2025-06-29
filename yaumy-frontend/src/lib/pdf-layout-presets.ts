@@ -17,7 +17,7 @@ export const PDF_LAYOUT_PRESETS: Record<string, LayoutPreset> = {
     id: 'pdf-reading-focus',
     name: 'PDF Reading Focus',
     description: 'Distraction-free PDF reading with full-page view and minimal UI elements',
-    supportedContentTypes: [ContentType.PDF],
+    supportedContentTypes: ['pdf'],
     isDefault: true,
     zoneConfig: {
       id: 'root',
@@ -51,7 +51,7 @@ export const PDF_LAYOUT_PRESETS: Record<string, LayoutPreset> = {
     id: 'pdf-study-annotate',
     name: 'PDF Study & Annotate',
     description: 'Balanced layout with PDF viewer, notes panel, and annotation tools for active studying',
-    supportedContentTypes: [ContentType.PDF],
+    supportedContentTypes: ['pdf'],
     zoneConfig: {
       id: 'root',
       orientation: 'horizontal',
@@ -64,6 +64,7 @@ export const PDF_LAYOUT_PRESETS: Record<string, LayoutPreset> = {
           size: 65,
         },
         {
+          type: 'panel-group',
           id: 'study-tools',
           orientation: 'vertical',
           children: [
@@ -113,12 +114,13 @@ export const PDF_LAYOUT_PRESETS: Record<string, LayoutPreset> = {
     id: 'pdf-research-analysis',
     name: 'PDF Research & Analysis',
     description: 'Comprehensive layout for in-depth document analysis with multiple reference panels',
-    supportedContentTypes: [ContentType.PDF],
+    supportedContentTypes: ['pdf'],
     zoneConfig: {
       id: 'root',
       orientation: 'vertical',
       children: [
         {
+          type: 'panel-group',
           id: 'main-workspace',
           orientation: 'horizontal',
           children: [
@@ -130,6 +132,7 @@ export const PDF_LAYOUT_PRESETS: Record<string, LayoutPreset> = {
               size: 50,
             },
             {
+              type: 'panel-group',
               id: 'analysis-tools',
               orientation: 'vertical',
               children: [
@@ -193,12 +196,13 @@ export const PDF_LAYOUT_PRESETS: Record<string, LayoutPreset> = {
     id: 'pdf-compare-review',
     name: 'PDF Compare & Review',
     description: 'Side-by-side PDF viewing for comparing documents or reviewing with annotations',
-    supportedContentTypes: [ContentType.PDF],
+    supportedContentTypes: ['pdf'],
     zoneConfig: {
       id: 'root',
       orientation: 'vertical',
       children: [
         {
+          type: 'panel-group',
           id: 'comparison-area',
           orientation: 'horizontal',
           children: [

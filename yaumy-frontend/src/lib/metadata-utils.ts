@@ -9,12 +9,12 @@ import type { TrackMetadata, ConversationMetadata, ProjectMetadata } from "~/typ
  * Safely converts JsonValue to TrackMetadata
  */
 export function safeParseTrackMetadata(metadata: JsonValue | null): TrackMetadata | null {
-  if (!metadata || typeof metadata !== 'object') {
+  if (!metadata || typeof metadata !== 'object' || Array.isArray(metadata)) {
     return null;
   }
   
   try {
-    return metadata as TrackMetadata;
+    return metadata as unknown as TrackMetadata;
   } catch {
     return null;
   }
@@ -24,12 +24,12 @@ export function safeParseTrackMetadata(metadata: JsonValue | null): TrackMetadat
  * Safely converts JsonValue to ConversationMetadata
  */
 export function safeParseConversationMetadata(metadata: JsonValue | null): ConversationMetadata | null {
-  if (!metadata || typeof metadata !== 'object') {
+  if (!metadata || typeof metadata !== 'object' || Array.isArray(metadata)) {
     return null;
   }
   
   try {
-    return metadata as ConversationMetadata;
+    return metadata as unknown as ConversationMetadata;
   } catch {
     return null;
   }
@@ -39,12 +39,12 @@ export function safeParseConversationMetadata(metadata: JsonValue | null): Conve
  * Safely converts JsonValue to ProjectMetadata
  */
 export function safeParseProjectMetadata(metadata: JsonValue | null): ProjectMetadata | null {
-  if (!metadata || typeof metadata !== 'object') {
+  if (!metadata || typeof metadata !== 'object' || Array.isArray(metadata)) {
     return null;
   }
   
   try {
-    return metadata as ProjectMetadata;
+    return metadata as unknown as ProjectMetadata;
   } catch {
     return null;
   }

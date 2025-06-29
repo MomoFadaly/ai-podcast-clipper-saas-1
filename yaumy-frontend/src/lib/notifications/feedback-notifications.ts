@@ -138,7 +138,7 @@ export async function notifyAssignment(
       userId: assigneeId,
       type: 'assignment',
       title: `Feedback Assigned: ${feedback.title}`,
-      message: `You&apos;ve been assigned a ${feedback.priority.toLowerCase()} priority ${feedback.type.toLowerCase().replace('_', ' ')} by ${assignedBy}.`,
+      message: `You&apos;ve been assigned a ${feedback.priority?.toLowerCase() || 'normal'} priority ${feedback.type.toLowerCase().replace('_', ' ')} by ${assignedBy}.`,
       actionUrl: `/dashboard/admin/feedback/${feedbackId}`,
       metadata: {
         assignedBy,

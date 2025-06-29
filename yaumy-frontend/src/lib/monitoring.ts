@@ -5,7 +5,6 @@
  */
 
 import * as Sentry from '@sentry/nextjs';
-import { CaptureConsole } from '@sentry/integrations';
 
 // Initialize Sentry
 export function initSentry() {
@@ -23,16 +22,7 @@ export function initSentry() {
       replaysOnErrorSampleRate: 1.0,
       
       // Integrations
-      integrations: [
-        new CaptureConsole({ levels: ['error', 'warn'] }),
-        new Sentry.BrowserTracing({
-          routingInstrumentation: Sentry.nextRouterInstrumentation,
-        }),
-        new Sentry.Replay({
-          maskAllText: false,
-          blockAllMedia: false,
-        }),
-      ],
+      integrations: [],
       
       // Filtering
       ignoreErrors: [
@@ -76,20 +66,18 @@ export function logError(error: Error, errorInfo?: any) {
 
 // Performance tracking
 export function trackPerformance(name: string, fn: () => Promise<any>) {
-  const transaction = Sentry.startTransaction({ name });
-  Sentry.getCurrentHub().getScope()?.setSpan(transaction);
+  // Simplified performance tracking without deprecated Sentry APIs
+  console.time(name);
   
   return fn()
     .then((result) => {
-      transaction.setStatus('ok');
+      console.timeEnd(name);
       return result;
     })
     .catch((error) => {
-      transaction.setStatus('internal_error');
+      console.timeEnd(name);
+      Sentry.captureException(error);
       throw error;
-    })
-    .finally(() => {
-      transaction.finish();
     });
 }
 
@@ -114,15 +102,8 @@ export function trackFeature(feature: string, properties?: Record<string, any>) 
 
 // API monitoring
 export async function monitoredFetch(url: string, options?: RequestInit) {
-  const span = Sentry.getCurrentHub().getScope()?.getSpan();
-  const child = span?.startChild({
-    op: 'http.client',
-    description: `${options?.method || 'GET'} ${url}`,
-  });
-  
   try {
     const response = await fetch(url, options);
-    child?.setStatus('ok');
     
     if (!response.ok) {
       Sentry.captureMessage(`API error: ${response.status} ${url}`, 'error');
@@ -130,9 +111,7 @@ export async function monitoredFetch(url: string, options?: RequestInit) {
     
     return response;
   } catch (error) {
-    child?.setStatus('internal_error');
+    Sentry.captureException(error);
     throw error;
-  } finally {
-    child?.finish();
   }
 }

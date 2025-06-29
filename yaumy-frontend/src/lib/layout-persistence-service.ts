@@ -377,7 +377,7 @@ export class LayoutPersistenceService {
     try {
       const result = await clearCustomLayoutConfig(contentType.toUpperCase() as any);
       this.clearCache();
-      return { success: result.success, error: result.error };
+      return { success: result.success };
     } catch (error) {
       console.error('Failed to revert to preset:', error);
       return { success: false, error: 'Failed to revert layout' };
@@ -395,7 +395,7 @@ export class LayoutPersistenceService {
       await clearCustomLayoutConfig(contentType.toUpperCase() as any);
       
       // Reset to system default
-      await setDefaultPreset(contentType.toUpperCase() as any, null);
+      await setDefaultPreset(contentType.toUpperCase() as any, '');
 
       this.clearCache();
       return { success: true };
