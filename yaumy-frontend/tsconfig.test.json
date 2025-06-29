@@ -1,0 +1,24 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "allowJs": true,
+    "strict": false,
+    "skipLibCheck": true
+  },
+  "include": [
+    "src/test/**/*",
+    "src/lib/helpers.ts",
+    "src/app/**/*",
+    "src/types/**/*",
+    "src/stores/**/*",
+    "src/components/**/*",
+    "src/actions/**/*",
+    "src/server/**/*"
+  ],
+  "exclude": [
+    "node_modules",
+    "src/lib/*.ts",
+    "!src/lib/helpers.ts"
+  ]
+}
