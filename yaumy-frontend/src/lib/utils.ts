@@ -200,7 +200,7 @@ export function uniqueBy<T>(
 /**
  * Deep merge objects
  */
-export function deepMerge<T extends object>(target: T, ...sources: Partial<T>[]): T {
+export function deepMerge<T extends object>(target: T, ...sources: any[]): T {
   if (!sources.length) return target;
   const source = sources.shift();
 

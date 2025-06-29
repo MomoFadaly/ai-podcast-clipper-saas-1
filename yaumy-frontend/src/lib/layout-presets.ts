@@ -7,6 +7,7 @@
 
 import type { ContentType } from '~/components/panels/types';
 import { ContentTypes } from './content-types';
+import type { DockZone, PanelGroup } from '~/types/adobe-layout';
 
 // Layout zone configuration
 export interface LayoutZoneConfig {
@@ -20,6 +21,8 @@ export interface LayoutZoneConfig {
     activePanel?: string;
     orientation?: 'horizontal' | 'vertical';
     children?: any[];
+    tabs?: string[];
+    activeTabId?: string;
   }>;
 }
 
@@ -111,6 +114,7 @@ export const LAYOUT_PRESETS: Record<string, LayoutPreset> = {
           size: 50,
         },
         {
+          type: 'panel-group',
           id: 'side-panel',
           orientation: 'vertical',
           children: [
@@ -165,6 +169,7 @@ export const LAYOUT_PRESETS: Record<string, LayoutPreset> = {
       orientation: 'vertical',
       children: [
         {
+          type: 'panel-group',
           id: 'main-content',
           orientation: 'horizontal',
           children: [
@@ -176,6 +181,7 @@ export const LAYOUT_PRESETS: Record<string, LayoutPreset> = {
               size: 60,
             },
             {
+              type: 'panel-group',
               id: 'right-panel',
               orientation: 'vertical',
               children: [
@@ -253,6 +259,7 @@ export const LAYOUT_PRESETS: Record<string, LayoutPreset> = {
           size: 30,
         },
         {
+          type: 'panel-group',
           id: 'content-area',
           orientation: 'horizontal',
           children: [
@@ -459,7 +466,7 @@ export function adaptPresetForContentType(
   const corePanel = getCorePanel(contentType);
   
   // Update zone config
-  adapted.zoneConfig = adaptZoneConfig(preset.zoneConfig, corePanel, availablePanels) as DockZone;
+  adapted.zoneConfig = adaptZoneConfig(preset.zoneConfig, corePanel, availablePanels);
   
   // Update visible panels
   adapted.visiblePanels = adapted.visiblePanels
@@ -493,22 +500,22 @@ function getCorePanel(contentType: ContentType): string {
  * Recursively adapt zone configuration
  */
 function adaptZoneConfig(
-  zone: DockZone | PanelGroup,
+  zone: LayoutZoneConfig | any,
   corePanel: string,
   availablePanels: string[]
-): DockZone | PanelGroup {
+): LayoutZoneConfig | any {
   if ('type' in zone && zone.type === 'panel-group') {
     return {
       ...zone,
       tabs: zone.tabs
-        .map(tabId => tabId === 'media-player' ? corePanel : tabId)
-        .filter(tabId => availablePanels.includes(tabId)),
+        ?.map((tabId: string) => tabId === 'media-player' ? corePanel : tabId)
+        ?.filter((tabId: string) => availablePanels.includes(tabId)),
       activeTabId: zone.activeTabId === 'media-player' ? corePanel : zone.activeTabId,
     };
   } else {
     return {
       ...zone,
-      children: (zone as DockZone).children.map(child => 
+      children: zone.children?.map((child: any) => 
         adaptZoneConfig(child, corePanel, availablePanels)
       ),
     };

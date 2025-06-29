@@ -271,6 +271,13 @@ export class FeatureFlags {
   }
 }
 
+// Standalone feature flag check function
+export function isFeatureEnabled(feature: FeatureFlag, userId?: string, userRole?: string): boolean {
+  const user = userId ? { id: userId, role: userRole } as User : undefined;
+  const flags = new FeatureFlags(user, process.env.NODE_ENV);
+  return flags.isEnabled(feature);
+}
+
 // React hook for feature flags
 import { useMemo } from 'react';
 import { useUserStore } from '~/stores/user-store';
@@ -288,6 +295,22 @@ export function useFeatureFlags() {
     override: (feature: FeatureFlag, enabled: boolean) => flags.override(feature, enabled),
     clearOverrides: () => flags.clearOverrides(),
   };
+}
+
+// React hook for individual feature flag
+export function useFeatureFlag(feature: FeatureFlag): boolean {
+  const { isEnabled } = useFeatureFlags();
+  return isEnabled(feature);
+}
+
+// React component for feature-gated content
+export function FeatureGate({ feature, children, fallback }: {
+  feature: FeatureFlag;
+  children: React.ReactNode;
+  fallback?: React.ReactNode;
+}) {
+  const isEnabled = useFeatureFlag(feature);
+  return isEnabled ? <>{children}</> : <>{fallback || null}</>;
 }
 
 // HOC for feature-flagged components

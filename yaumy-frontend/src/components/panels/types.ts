@@ -11,7 +11,7 @@ export interface PanelProps {
   onClose?: () => void;
 }
 
-export type PanelType = 'video' | 'transcript' | 'notes' | 'pdf' | 'empty';
+export type PanelType = 'video' | 'audio' | 'text' | 'transcript' | 'notes' | 'pdf' | 'empty';
 
 export type ContentType = PanelType;
 
