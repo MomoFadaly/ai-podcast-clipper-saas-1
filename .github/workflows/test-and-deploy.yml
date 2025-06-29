@@ -65,8 +65,9 @@ jobs:
     
     - name: Build application
       working-directory: ./yaumy-frontend
-      run: npm run build || echo "Build failed but continuing"
+      run: npm run build
       env:
+        CI: true
         SKIP_ENV_VALIDATION: true
         NEXT_TELEMETRY_DISABLED: 1
 
