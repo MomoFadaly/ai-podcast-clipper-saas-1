@@ -46,3 +46,21 @@ ai-podcast-clipper-backend/*.env
 ai-podcast-clipper-backend/.env
 ai-podcast-clipper-backend/.modal*
 ai-podcast-clipper-backend/brca1_analysis_plot.png
+# Next.js and build artifacts
+.next/
+out/
+dist/
+coverage/
+test-results/
+.cache/
+
+# Large files and dependencies
+**/node_modules/
+**/.next/
+**/coverage/
+**/test-results/
+**/dist/
+*.dylib
+*.dll
+*.node
+**/venv/
