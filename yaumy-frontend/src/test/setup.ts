@@ -50,7 +50,14 @@ beforeAll(() => {
   global.fetch = vi.fn();
   
   // Mock environment variables
-  process.env.NODE_ENV = 'test';
+  if (!process.env.NODE_ENV) {
+    Object.defineProperty(process.env, 'NODE_ENV', {
+      value: 'test',
+      writable: true,
+      enumerable: true,
+      configurable: true
+    });
+  }
   process.env.NEXTAUTH_SECRET = 'test-secret';
   process.env.NEXTAUTH_URL = 'http://localhost:3000';
 });
